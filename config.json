@@ -1,0 +1,11 @@
+{
+  "serverUrl": "wss://pixel-plas-server.onrender.com",
+  "awaySeconds": 60,
+  "updateUrl": "",
+  "shortcuts": {
+    "overlay": "Ctrl+Alt+H",
+    "composer": "Ctrl+Alt+I",
+    "quiet": "Ctrl+Alt+M",
+    "history": "Ctrl+Alt+R"
+  }
+}

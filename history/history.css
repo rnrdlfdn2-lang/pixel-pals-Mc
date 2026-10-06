@@ -1,0 +1,22 @@
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{display:flex;flex-direction:column;font:14px "Segoe UI","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;color:#1b1b1f;background:#f3f6fb}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 10px;border-bottom:1px solid #e3e6ee;background:#fff}
+h1{font-size:18px;font-weight:600;margin:0}
+.sub{color:#5b5f6a;font-size:12px;margin-top:2px}
+button{font:inherit;cursor:pointer;height:30px;padding:0 12px;border:1px solid #d6d9e2;border-radius:6px;background:#fff}
+button:hover{background:#f4f6fa}
+button.on{background:#0067c0;border-color:#0067c0;color:#fff}
+#list{flex:1;overflow:auto;padding:12px 14px}
+.day{text-align:center;color:#7a7e89;font-size:12px;margin:14px 0 8px}
+.msg{margin:0 0 10px;max-width:92%}
+.meta{font-size:12px;color:#5b5f6a;margin-bottom:3px}
+.meta span{margin-left:6px;color:#9a9ea8}
+.text{display:inline-block;background:#fff;border:1px solid #e3e6ee;border-radius:12px;padding:7px 11px;white-space:pre-wrap;word-break:break-word}
+.msg.me{margin-left:auto;text-align:right}
+.msg.me .text{background:#dbeafe;border-color:#bcd6f7;text-align:left}
+.more{display:block;margin:0 auto 10px}
+.note{text-align:center;color:#9a9ea8;font-size:12px;margin:6px 0 10px}
+.empty{text-align:center;color:#7a7e89;margin-top:60px;line-height:1.7}
+footer{padding:7px 14px;font-size:12px;color:#7a7e89;border-top:1px solid #e3e6ee;background:#fff;text-align:center}
+#jump{position:fixed;right:16px;bottom:44px;box-shadow:0 2px 8px rgba(0,0,0,.18);border-radius:16px}

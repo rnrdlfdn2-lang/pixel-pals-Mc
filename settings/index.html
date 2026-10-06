@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws: wss:">
+<title>DDuknip-friends 설정</title>
+<link rel="stylesheet" href="settings.css"></head>
+<body>
+<nav>
+  <button data-page="profile" class="on">🙂 내 프로필</button>
+  <button data-page="groups">👥 그룹</button>
+</nav>
+<main>
+  <section id="profile">
+    <h1>내 프로필</h1>
+    <p class="sub">친구들에게 보이는 이름과 캐릭터를 설정할 수 있습니다.</p>
+    <div class="card row">
+      <div><div class="label">닉네임</div><div class="desc">픽셀 월드와 메시지에 표시되는 이름입니다. 2~8자로 입력해 주세요.</div></div>
+      <div class="field"><input id="nick" maxlength="8" placeholder="닉네임"><div id="nickerr" class="err"></div></div>
+    </div>
+    <div class="card"><div class="label">캐릭터</div><div class="desc">픽셀 월드에서 나를 나타낼 픽셀 캐릭터를 선택할 수 있습니다.</div><div id="chars"></div></div>
+    <div class="card"><div class="label">말풍선</div><div class="desc">픽셀 월드에서 내 메시지를 표시할 말풍선을 선택할 수 있습니다.</div><div id="bubbles"></div></div>
+    <div class="card"><div class="label">던지기 장난감</div><div class="desc">픽셀 월드에서 내 캐릭터가 친구 캐릭터에게 던질 장난감을 선택할 수 있습니다.</div><div id="throws"></div></div>
+    <div class="card row"><div><div class="label">오프라인 멤버 표시</div><div class="desc">접속하지 않은 친구 캐릭터를 옆으로 누워 있는 모습으로 보여 줍니다.</div></div><input type="checkbox" id="showoff"></div>
+    <div class="card row"><div><div class="label">던지기 전 오른쪽 두 번 클릭</div><div class="desc">끄면 친구 캐릭터를 왼쪽 클릭해서 바로 던져요. 켜면 내 캐릭터를 오른쪽으로 두 번 클릭한 뒤 10초 안에만 던질 수 있어요.</div></div><input type="checkbox" id="throwguard"></div>
+    <p class="note">그룹 안에서 다른 멤버와 같은 캐릭터나 닉네임을 사용할 수 있습니다.</p>
+  </section>
+
+  <section id="groups" hidden>
+    <h1>현재 그룹</h1>
+    <p class="sub">친구와 함께할 그룹을 관리할 수 있습니다. 그룹마다 최대 12명까지 참여할 수 있습니다.</p>
+    <div id="list"></div>
+    <h2>그룹 만들기</h2>
+    <p class="sub">그룹을 만들고 초대 코드를 친구와 공유할 수 있습니다.</p>
+    <div class="card"><div class="label">그룹 이름</div>
+      <div class="inline"><input id="gname" maxlength="20" placeholder="그룹 이름"><button id="gcreate" class="primary">그룹 만들기</button></div></div>
+    <h2>초대 코드로 참여</h2>
+    <p class="sub">친구에게 받은 초대 코드로 그룹에 참여할 수 있습니다.</p>
+    <div class="card"><div class="label">초대 코드</div>
+      <div class="inline"><input id="gcode" maxlength="16" placeholder="초대 코드"><button id="gjoin" class="primary">초대 코드로 참여</button></div></div>
+  </section>
+</main>
+<div id="toast"></div>
+<script src="../shared/motion.js"></script><script src="../shared/pixelchars.js"></script><script src="../shared/basicchars.js"></script><script src="../shared/sprites.js"></script><script src="settings.js"></script>
+</body></html>

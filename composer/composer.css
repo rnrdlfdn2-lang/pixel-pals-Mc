@@ -1,0 +1,12 @@
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+.bar{display:flex;align-items:center;gap:8px;height:100%;padding:0 10px 0 6px;background:#fff;border:1.5px solid #2b2d42;border-radius:14px;
+     font:14px "Segoe UI","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;-webkit-app-region:drag}
+.grip{width:18px;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;cursor:grab}
+.grip i{display:block;width:12px;height:2px;border-radius:1px;background:#9a9ea8}
+input{flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid #d6d9e2;border-radius:8px;font:inherit;outline:none;-webkit-app-region:no-drag}
+input:focus{border-color:#0067c0}
+button{height:36px;padding:0 14px;border:0;border-radius:8px;background:#0067c0;color:#fff;font:inherit;cursor:pointer;-webkit-app-region:no-drag}
+button:hover{background:#0a5aa6}
+.bar.err input{border-color:#c42b1c}
+.bar.err input::placeholder{color:#c42b1c}

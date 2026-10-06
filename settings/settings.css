@@ -1,0 +1,60 @@
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{display:flex;font:14px "Segoe UI","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;color:#1b1b1f;background:linear-gradient(135deg,#f3f6fb,#eef1f8)}
+nav{width:210px;padding:16px 10px;flex-shrink:0}
+nav button{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 12px;border-radius:6px;font:inherit;cursor:pointer;margin-bottom:2px}
+nav button:hover{background:#e6e9f0}
+nav button.on{background:#e3e6ee;font-weight:600}
+main{flex:1;overflow:auto;padding:20px 28px 40px}
+section{max-width:760px;margin:0 auto}
+h1{font-size:30px;font-weight:500;margin:6px 0 4px}
+h2{font-size:22px;font-weight:500;margin:34px 0 4px}
+.sub{color:#5b5f6a;margin:0 0 14px;font-size:13px}
+.note{color:#7a7e89;font-size:13px}
+.card{background:rgba(255,255,255,.85);border:1px solid #e3e6ee;border-radius:8px;padding:16px 18px;margin-bottom:12px}
+.card.row{display:flex;justify-content:space-between;align-items:center;gap:20px}
+.label{font-weight:600}
+.desc{color:#5b5f6a;font-size:12px;margin-top:2px}
+.field{width:320px;max-width:50%}
+input{width:100%;height:34px;padding:0 10px;border:1px solid #d6d9e2;border-bottom:2px solid #8d92a0;border-radius:5px;font:inherit;background:#fff;outline:none}
+input:focus{border-bottom-color:#0067c0}
+button{font:inherit;cursor:pointer}
+.err{color:#c42b1c;font-size:12px;min-height:16px;margin-top:2px}
+.inline{display:flex;gap:10px;margin-top:8px}
+.inline input{flex:1}
+.btn,.inline button,.gcard button.b{height:32px;padding:0 14px;border:1px solid #d6d9e2;border-radius:5px;background:#fff}
+.btn:hover,.inline button:hover,.gcard button.b:hover{background:#f4f6fa}
+button.primary{background:#0067c0;border-color:#0067c0;color:#fff}
+button.primary:hover{background:#0a5aa6}
+button.danger{color:#c42b1c}
+.opts{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.opt{position:relative;width:128px;min-height:132px;padding:12px 8px 10px;border:1px solid transparent;border-radius:8px;background:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:10px}
+.opt:hover{background:#f1f3f8}
+.opt.sel{border:2px solid #0067c0;background:#fff}
+.opt .check{display:none;position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:#0067c0;color:#fff;font-size:13px;line-height:22px;text-align:center}
+.opt.sel .check{display:block}
+.pill{width:56px;height:24px;border-radius:12px;border:1.5px solid;font-size:11px;line-height:21px;text-align:center}
+.emoji{font-size:30px;line-height:36px}
+.gcard{background:rgba(255,255,255,.85);border:1px solid #e3e6ee;border-radius:8px;margin-bottom:12px;overflow:hidden}
+.ghead{display:flex;align-items:center;gap:14px;padding:16px 18px}
+.ghead .ic{font-size:22px}
+.ghead .t{flex:1}
+.ghead .t b{display:block}
+.ghead .t span{color:#5b5f6a;font-size:12px}
+.cur{color:#107c10;font-weight:600}
+.gbody{border-top:1px solid #e3e6ee;padding:14px 18px 16px 62px}
+.mem{display:flex;align-items:center;gap:12px;min-height:44px}
+.mem .n{flex:1;display:flex;align-items:center;gap:8px}
+.badge{background:#dbeafe;color:#0b5cad;font-size:11px;border-radius:10px;padding:1px 7px}
+.off{color:#9a9ea8;font-size:11px}
+.gfoot{display:flex;gap:8px;margin-top:12px;padding-top:14px;border-top:1px solid #e3e6ee}
+.gfoot input{max-width:260px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1b1b1f;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:.92}
+#toast.bad{background:#c42b1c}
+input[type=checkbox]{width:22px;height:22px;flex:none;padding:0}
+.opt canvas{display:block}
+.mem canvas{display:block;margin:-4px 0}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;background:#ff453a}
+.dot.online{background:#34c759}
+.dot.away{background:#ff9f0a}
