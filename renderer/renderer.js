@@ -22,7 +22,7 @@ let myId = null, myState = 'online', status = '', stop = false;
 
 function addPeer(o, me) {
   peers.set(o.id, { id: o.id, uid: o.uid, name: o.name, look: o.look, state: o.state || 'online', x: me ? Math.random() * W : W / 2, rx: 0.5, dir: 1,
-    walking: false, wait: 0, tx: null, bubble: null, typing: 0, hitAt: 0, throwAt: 0, stunUntil: 0, pulseAt: 0, hits: [], bw: 0, bh: 0, init: !!me });
+    walking: false, wait: 0, tx: null, bubble: null, typing: 0, hitAt: 0, throwAt: 0, stunUntil: 0, pulseAt: 0, hits: [], bw: 0, bh: 0, lastMoveAt: -1e9, init: !!me });
 }
 const hasUid = (uid) => [...peers.values()].some((p) => p.uid === uid);
 function addOffline(o) {
@@ -61,7 +61,11 @@ function handle(m) {
     if (m.gone) window.api.forgetGroup(cfg.activeCode);   // gone: 이 그룹에서 완전히 빠짐
     if (m.t === 'err') window.api.refreshGroups();         // 접속 실패: 서버가 비어 있을 수 있으니 바로 확인해서 복원 (성공하면 자동으로 다시 접속)
   }
-  else if (m.t === 'pos') { const p = peers.get(m.id); if (!p) return; p.rx = m.x; if (!p.init) { p.x = m.x * W; p.init = true; } }
+  else if (m.t === 'pos') {
+    const p = peers.get(m.id); if (!p) return; const dx = (m.x - p.rx) * W; p.rx = m.x;
+    if (!p.init) { p.x = m.x * W; p.init = true; }
+    else if (Math.abs(dx) > IA.REMOTE.minMovePx) { p.lastMoveAt = now; p.dir = dx > 0 ? 1 : -1; }      // 실제로 움직였을 때만 걷기/방향 갱신
+  }
   else if (m.t === 'chat') { const p = peers.get(m.id); if (p) { p.typing = 0; p.bubble = { text: m.text, style: bubbleStyle(m.bubble), until: now + 5000 }; } }
   else if (m.t === 'throw') {
     const a = peers.get(m.from), b = peers.get(m.to); if (!a || !b) return;
@@ -184,7 +188,7 @@ function frame(now) {
       }
     } else {                                       // 친구 캐릭터: 받은 위치로 부드럽게
       const d = p.rx * W - p.x;
-      p.walking = Math.abs(d) > 1 && !frozen(p, now); if (Math.abs(d) > 1 && p.state === 'online') p.dir = Math.sign(d);
+      p.walking = IA.remoteWalking(now, p.lastMoveAt, d) && !frozen(p, now);                      // 신호가 잠깐 늦어도 걷던 동작을 이어감
       p.x += d * Math.min(1, dt * 8);
     }
   }

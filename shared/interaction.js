@@ -40,6 +40,11 @@
   // 친구 캐릭터를 눌러 던질 수 있는 조건: 연결됨 + 내가 기절 중이 아님 + (보호 꺼짐 또는 대기 중)
   const throwEnabled = ({ connected, stunned, guard, armedUntil, now }) => !!connected && !stunned && (!guard || armedUntil > now);
 
-  root.Interaction = { PULSE, THROW, HIT_MS, STUN, pulseScale, Cooldown, SelfClick, RightClick, throwEnabled };
+  // 다른 사람 캐릭터가 '걷는 중'인지 판단: 위치 신호가 늦게 몰려 와도(네트워크 흔들림) 걷던 동작이 끊기지 않게,
+  // 마지막으로 움직임이 있은 뒤 holdMs 동안은 계속 걷는 중으로 본다. (목표와 catchUpPx 이상 멀면 따라잡는 중이니 걷는 중)
+  const REMOTE = { holdMs: 700, minMovePx: 0.5, catchUpPx: 6 };
+  const remoteWalking = (now, lastMoveAt, d) => now - lastMoveAt < REMOTE.holdMs || Math.abs(d) > REMOTE.catchUpPx;
+
+  root.Interaction = { PULSE, THROW, HIT_MS, STUN, REMOTE, pulseScale, remoteWalking, Cooldown, SelfClick, RightClick, throwEnabled };
   if (typeof module !== 'undefined') module.exports = root.Interaction;
 })(typeof window !== 'undefined' ? window : globalThis);
