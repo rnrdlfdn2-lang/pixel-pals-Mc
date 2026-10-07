@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, nativeImage, clipboard, powerMonitor, dialog, shell } = require('electron');
 const path = require('path'), fs = require('fs'), crypto = require('crypto');
 const WebSocket = require('ws');
+const { spawn } = require('child_process');
+const upd = require('./update.js');           // 업데이트 확인/내려받기 로직
 
 // 앱 이름을 바꿔도 기존 설정/그룹/신원이 사라지지 않게 데이터 폴더 이름은 고정한다 (Windows: %APPDATA%\pixel-pals, Mac: ~/Library/Application Support/pixel-pals)
 app.setPath('userData', path.join(app.getPath('appData'), 'pixel-pals'));
@@ -24,11 +26,11 @@ function loadSettings() {
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
   let s = {}; try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
   settings = { uid: crypto.randomUUID(), nickname: '', character: 0, bubble: 'default', throwable: 'ball', activeCode: '', showOffline: true, quietMode: false,
-    throwGuard: false, soundOn: true, composerPlacement: null, groupSnapshots: [], ...s };
+    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, composerPlacement: null, groupSnapshots: [], ...s };
   saveFile();
 }
 function saveFile() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); }
-const view = () => ({ ...settings, serverUrl, doubleClickMs: base.doubleClickMs });
+const view = () => ({ ...settings, serverUrl, doubleClickMs: base.doubleClickMs, appVersion: app.getVersion() });
 
 ipcMain.on('settings:get', (e) => (e.returnValue = view()));
 ipcMain.handle('settings:set', (_e, p = {}) => {
@@ -39,8 +41,11 @@ ipcMain.handle('settings:set', (_e, p = {}) => {
   if (typeof p.showOffline === 'boolean') settings.showOffline = p.showOffline;
   if (typeof p.throwGuard === 'boolean') settings.throwGuard = p.throwGuard;
   if (typeof p.soundOn === 'boolean') settings.soundOn = p.soundOn;
+  if ('displayId' in p && (p.displayId === null || Number.isInteger(p.displayId))) settings.displayId = p.displayId;                      // 캐릭터가 돌아다닐 모니터 (null = 주 모니터)
+  if (typeof p.sizeScale === 'number' && Number.isFinite(p.sizeScale)) settings.sizeScale = Math.round(Math.min(1.6, Math.max(0.7, p.sizeScale)) * 100) / 100;   // 캐릭터 크기 70%~160%
+  if (typeof p.autoUpdateCheck === 'boolean') settings.autoUpdateCheck = p.autoUpdateCheck;
   if (typeof p.activeCode === 'string') { const changed = p.activeCode !== settings.activeCode; settings.activeCode = p.activeCode.slice(0, 20); if (changed && historyWin) historyWin.webContents.send('history:refresh'); }
-  saveFile();
+  saveFile(); placeOverlay();                 // 모니터를 바꿨으면 오버레이를 그 모니터로 옮김
   if (win) win.webContents.reload();          // 오버레이가 새 설정으로 다시 접속
   return view();
 });
@@ -89,9 +94,35 @@ ipcMain.on('group:forget', (_e, code) => {                                      
   saveFile();
 });
 
+// ---- 모니터 선택: 캐릭터가 돌아다닐 모니터 (고른 모니터가 없어졌으면 주 모니터) ----
+const sortedDisplays = () => screen.getAllDisplays().slice().sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);   // 왼쪽 -> 오른쪽 순서로 1, 2, 3...
+function targetDisplay() {
+  const all = screen.getAllDisplays();
+  return (settings && settings.displayId != null && all.find((d) => d.id === settings.displayId)) || screen.getPrimaryDisplay();
+}
+function placeOverlay() {
+  if (!win) return; const wa = targetDisplay().workArea;
+  win.setBounds({ x: wa.x, y: wa.y + wa.height - H, width: wa.width, height: H });
+}
+ipcMain.handle('displays:list', () => {
+  const prim = screen.getPrimaryDisplay().id, cur = targetDisplay().id;
+  return sortedDisplays().map((d, i) => ({ id: d.id, n: i + 1, primary: d.id === prim, selected: d.id === cur, w: d.size.width, h: d.size.height }));
+});
+function identifyDisplays() {                    // 각 모니터 가운데에 번호를 2.5초 동안 띄움
+  sortedDisplays().forEach((d, i) => {
+    const w = new BrowserWindow({ x: d.bounds.x + Math.round(d.bounds.width / 2) - 120, y: d.bounds.y + Math.round(d.bounds.height / 2) - 120, width: 240, height: 240,
+      frame: false, transparent: true, focusable: false, skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false });
+    w.setIgnoreMouseEvents(true);
+    w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:rgba(20,24,32,.88);border-radius:28px;color:#fff;font:700 120px system-ui"><div style="text-align:center">${i + 1}<div style="font:600 22px system-ui;margin-top:-8px">${d.size.width}×${d.size.height}</div></div></body>`));
+    w.once('ready-to-show', () => w.showInactive());
+    setTimeout(() => { if (!w.isDestroyed()) w.close(); }, 2500);
+  });
+}
+ipcMain.handle('displays:identify', () => { identifyDisplays(); return true; });
+
 // ---- 오버레이 창 ----
 function createOverlay() {
-  const { workArea } = screen.getPrimaryDisplay();
+  const { workArea } = targetDisplay();
   win = new BrowserWindow({
     x: workArea.x, y: workArea.y + workArea.height - H, width: workArea.width, height: H,
     transparent: true, frame: false, resizable: false, hasShadow: false, skipTaskbar: true, alwaysOnTop: true,
@@ -144,7 +175,7 @@ function createComposer() {
 }
 function placeComposer() {
   const pl = settings.composerPlacement, displays = screen.getAllDisplays();
-  const d = (pl && displays.find((x) => String(x.id) === String(pl.display))) || screen.getPrimaryDisplay(), wa = d.workArea;
+  const d = (pl && displays.find((x) => String(x.id) === String(pl.display))) || targetDisplay(), wa = d.workArea;
   const maxX = Math.max(0, wa.width - CW), maxY = Math.max(0, wa.height - CH);
   const x = pl ? clamp(pl.x, 0, maxX) : maxX / 2, y = pl ? clamp(pl.y, 0, maxY) : 10;        // 저장된 위치가 없으면: 가운데 위, 위에서 10
   placing = true; composerWin.setBounds({ x: Math.round(wa.x + x), y: Math.round(wa.y + y), width: CW, height: CH }); setTimeout(() => (placing = false), 50);
@@ -215,18 +246,41 @@ function openHistory() {
 }
 const toggleHistory = () => (historyWin ? historyWin.close() : openHistory());
 
-// ---- 업데이트 확인: config.json 의 updateUrl 이 가리키는 JSON {"version","url","notes"} 와 현재 버전을 비교 ----
-const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-async function checkUpdate() {
-  if (!base.updateUrl) return dialog.showMessageBox({ type: 'info', title: '업데이트 확인', message: '업데이트 주소가 설정되지 않았어요.', detail: 'config.json 의 updateUrl 에 최신 버전 정보(JSON) 주소를 넣으면 확인할 수 있어요.' });
-  try {
-    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 8000);
-    const info = await (await fetch(base.updateUrl, { signal: ctl.signal })).json(); clearTimeout(t);
-    if (!info.version || !newer(info.version, app.getVersion())) return dialog.showMessageBox({ type: 'info', title: '업데이트 확인', message: `최신 버전이에요. (v${app.getVersion()})` });
-    const r = await dialog.showMessageBox({ type: 'info', title: '업데이트 확인', message: `새 버전 v${info.version}이 나왔어요.`, detail: info.notes || '', buttons: ['다운로드', '나중에'], defaultId: 0 });
-    if (r.response === 0 && /^https:\/\//.test(info.url || '')) shell.openExternal(info.url);
-  } catch { dialog.showMessageBox({ type: 'error', title: '업데이트 확인', message: '업데이트 정보를 가져오지 못했어요.', detail: '잠시 후 다시 시도해 주세요.' }); }
+// ---- 업데이트: GitHub 릴리스에서 새 버전을 확인하고, 설치 파일을 내려받아 설치까지 시켜줌 (파일을 따로 받을 필요 없음) ----
+// Windows: 내려받은 설치 파일을 실행 -> 앱이 종료되고 새 버전으로 다시 켜짐 / Mac: 서명이 없어서 자동 교체는 불가 -> dmg 를 내려받아 열어 줌(응용 프로그램으로 끌어다 놓기)
+let updating = false, promptedVersion = '';
+const winTitle = 'DDuknip-friends 업데이트';
+async function checkForUpdate(manual) {
+  const repo = upd.repoFrom(__dirname, base);
+  if (!repo) { if (manual) dialog.showMessageBox({ type: 'info', title: winTitle, message: '업데이트 정보를 찾을 수 없어요.', detail: 'GitHub 에서 빌드한 설치 파일로 설치했을 때만 확인할 수 있어요.' }); return 'no-repo'; }
+  if (updating) return 'busy';
+  let info; try { info = await upd.fetchLatest(repo); } catch { if (manual) dialog.showMessageBox({ type: 'error', title: winTitle, message: '업데이트 정보를 가져오지 못했어요.', detail: '인터넷 연결을 확인하고 잠시 뒤에 다시 시도해 주세요.' }); return 'error'; }
+  if (!info.version || !upd.isNewer(info.version, app.getVersion())) { if (manual) dialog.showMessageBox({ type: 'info', title: winTitle, message: `최신 버전이에요. (v${app.getVersion()})` }); return 'latest'; }
+  if (!manual && promptedVersion === info.version) return 'available';                     // 자동 확인으로 같은 버전을 계속 묻지 않음
+  promptedVersion = info.version;
+  const r = await dialog.showMessageBox({ type: 'info', title: winTitle, message: `새 버전 v${info.version}이 나왔어요. (지금 v${app.getVersion()})`, detail: info.notes || '', buttons: ['지금 업데이트', '나중에'], defaultId: 0, cancelId: 1 });
+  if (r.response === 0) await startUpdate(info);
+  return 'available';
 }
+async function startUpdate(info) {
+  const asset = upd.pickAsset(info.assets, process.platform, process.arch);
+  if (!asset) { if (/^https:\/\/github\.com\//.test(info.page || '')) shell.openExternal(info.page); return; }          // 이 컴퓨터용 설치 파일이 없으면 릴리스 페이지를 열어 줌
+  const dest = path.join(app.getPath('temp'), 'DDuknip-friends-update', asset.name); updating = true; let last = -1;
+  try {
+    await upd.download(asset.url, dest, (got, total) => { const pct = total ? Math.floor(got / total * 100) : 0; if (pct !== last && tray) { last = pct; tray.setToolTip(`DDuknip-friends · 업데이트 내려받는 중 ${pct}%`); } });
+  } catch (e) {
+    updating = false; if (tray) tray.setToolTip('DDuknip-friends');
+    dialog.showMessageBox({ type: 'error', title: winTitle, message: '내려받지 못했어요.', detail: String(e.message || e) + '\n잠시 뒤에 다시 시도해 주세요.' }); return;
+  }
+  updating = false; if (tray) tray.setToolTip('DDuknip-friends');
+  const win32 = process.platform === 'win32';
+  const r = await dialog.showMessageBox({ type: 'info', title: winTitle, message: '내려받기가 끝났어요.', buttons: ['지금 설치', '나중에'], defaultId: 0, cancelId: 1,
+    detail: win32 ? '설치를 시작하면 앱이 잠시 꺼졌다가 새 버전으로 다시 켜져요.' : '열리는 창에서 앱을 응용 프로그램 폴더로 끌어다 놓아 덮어써 주세요. 그동안 이 앱은 종료돼요.' });
+  if (r.response !== 0) return;
+  let failed = false; upd.runInstaller(dest, { platform: process.platform, spawn, shell, onError: (e) => { failed = true; dialog.showMessageBox({ type: 'error', title: winTitle, message: '설치를 시작하지 못했어요.', detail: String(e.message || e) + '\n내려받은 파일: ' + dest }); } });
+  setTimeout(() => { if (!failed) app.quit(); }, 800);
+}
+ipcMain.handle('update:check', () => checkForUpdate(true));
 
 // ---- 트레이 우클릭 메뉴 (SIDEY와 같은 구성, 상점 제외). 열 때마다 새로 만들어서 상태가 항상 맞게 ----
 function buildMenu() {
@@ -245,7 +299,7 @@ function buildMenu() {
     { label: '그룹 설정…', click: () => openSettings('groups') },
     { label: '로그인 시 자동 실행', type: 'checkbox', checked: loginEnabled(), click: (item) => setLogin(item.checked) },
     { type: 'separator' },
-    { label: '업데이트 확인…', click: checkUpdate },
+    { label: '업데이트 확인…', click: () => checkForUpdate(true) },
     { label: '설정…', click: () => openSettings('profile') },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
@@ -259,6 +313,9 @@ app.whenReady().then(() => {
   createComposer();                                     // 숨긴 채로 미리 만들어 두면 첫 클릭에도 바로 열림
   setInterval(pollCursor, 25);                          // 마우스가 캐릭터 위에 있는지 확인 (클릭 통과 제어)
   refreshGroups(); setInterval(refreshGroups, 60000);
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, placeOverlay);     // 모니터를 뽑거나 해상도가 바뀌면 다시 맞춤
+  setTimeout(() => { if (settings.autoUpdateCheck !== false) checkForUpdate(false); }, 20000);                     // 켠 지 20초 뒤, 그리고 6시간마다 새 버전 확인
+  setInterval(() => { if (settings.autoUpdateCheck !== false) checkForUpdate(false); }, 6 * 3600 * 1000);
 
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'icon.png')));
   tray.setToolTip('DDuknip-friends');

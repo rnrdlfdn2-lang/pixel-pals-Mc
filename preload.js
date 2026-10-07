@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('api', {
   onComposerShown: (cb) => ipcRenderer.on('composer:shown', () => cb()),
   // 그 밖
   onPresence: (cb) => ipcRenderer.on('presence', (_e, s) => cb(s)),
+  listDisplays: () => ipcRenderer.invoke('displays:list'),          // 연결된 모니터 목록
+  identifyDisplays: () => ipcRenderer.invoke('displays:identify'),  // 각 모니터에 번호 띄우기
+  checkUpdate: () => ipcRenderer.invoke('update:check'),            // 업데이트 확인
   onQuiet: (cb) => ipcRenderer.on('quiet', (_e, v) => cb(v)),
   onSound: (cb) => ipcRenderer.on('sound', (_e, v) => cb(v)),
   onShowPage: (cb) => ipcRenderer.on('settings:page', (_e, p) => cb(p)),

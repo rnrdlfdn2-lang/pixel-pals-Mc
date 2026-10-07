@@ -62,6 +62,10 @@ function renderProfile() {
   $('#showoff').checked = st.showOffline !== false;
   $('#throwguard').checked = !!st.throwGuard;
   $('#soundon').checked = st.soundOn !== false;
+  $('#autoupd').checked = st.autoUpdateCheck !== false;
+  $('#size').value = Math.round((st.sizeScale || 1) * 100); $('#sizeval').textContent = $('#size').value + '%';
+  $('#verdesc').textContent = `DDuknip-friends v${st.appVersion || ''} · 새 버전이 나오면 파일을 따로 받지 않고 여기서 바로 업데이트할 수 있어요.`;
+  renderDisplays();
   $('#chars').replaceChildren(options(CHARACTERS, (_, i) => i === st.character, (_, i) => icon(i), (_, i) => save({ character: i }, true)));
   $('#bubbles').replaceChildren(options(BUBBLES, (b) => b.id === st.bubble,
     (b) => el('div', { class: 'pill', style: `background:${b.bg};border-color:${b.border};color:${b.text}`, text: '안녕' }), (b) => save({ bubble: b.id })));
@@ -70,6 +74,17 @@ function renderProfile() {
 $('#showoff').addEventListener('change', () => save({ showOffline: $('#showoff').checked }).then(() => toast('저장했어요')));
 $('#throwguard').addEventListener('change', () => save({ throwGuard: $('#throwguard').checked }).then(() => toast('저장했어요')));
 $('#soundon').addEventListener('change', () => save({ soundOn: $('#soundon').checked }).then(() => toast($('#soundon').checked ? '효과음을 켰어요' : '효과음을 껐어요')));
+async function renderDisplays() {                         // 연결된 모니터 목록 (왼쪽부터 1, 2, 3...)
+  let list = []; try { list = await api.listDisplays(); } catch {}
+  $('#displays').replaceChildren(...list.map((d) => el('button', { class: 'opt disp' + (d.selected ? ' sel' : ''), onclick: () => save({ displayId: d.id }).then(() => toast(`모니터 ${d.n}에서 돌아다녀요`)) },
+    el('span', { text: `모니터 ${d.n}` }), el('small', { text: `${d.w}×${d.h}${d.primary ? ' · 주 모니터' : ''}` }), el('span', { class: 'check', text: '✓' }))));
+}
+$('#identify').addEventListener('click', () => api.identifyDisplays());
+$('#size').addEventListener('input', () => ($('#sizeval').textContent = $('#size').value + '%'));
+$('#size').addEventListener('change', () => save({ sizeScale: Number($('#size').value) / 100 }).then(() => toast('캐릭터 크기를 바꿨어요')));
+$('#sizereset').addEventListener('click', () => save({ sizeScale: 1 }).then(() => toast('기본 크기로 돌렸어요')));
+$('#autoupd').addEventListener('change', () => save({ autoUpdateCheck: $('#autoupd').checked }).then(() => toast($('#autoupd').checked ? '자동 확인을 켰어요' : '자동 확인을 껐어요')));
+$('#checkupd').addEventListener('click', async () => { const b = $('#checkupd'); b.disabled = true; b.textContent = '확인 중…'; try { await api.checkUpdate(); } finally { b.disabled = false; b.textContent = '업데이트 확인'; } });
 $('#nick').addEventListener('input', () => ($('#nickerr').textContent = ''));
 $('#nick').addEventListener('change', () => {
   const v = $('#nick').value.trim(), n = [...v].length;

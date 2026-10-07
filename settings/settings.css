@@ -52,6 +52,15 @@ button.danger{color:#c42b1c}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1b1b1f;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast.show{opacity:.92}
 #toast.bad{background:#c42b1c}
+input[type=range]{border:0;padding:0;height:24px;background:none;flex:1}
+.sizebar{display:flex;align-items:center;gap:12px;margin-top:14px}
+.sizebar span{width:52px;text-align:right;font-weight:600}
+.sizebar button,#identify,#checkupd{height:32px;padding:0 14px;border:1px solid #d6d9e2;border-radius:5px;background:#fff}
+.sizebar button:hover,#identify:hover,#checkupd:hover{background:#f4f6fa}
+#checkupd{white-space:nowrap;flex:none}
+#checkupd:disabled{opacity:.6;cursor:default}
+.opt.disp{width:170px;min-height:84px}
+.opt.disp small{color:#5b5f6a}
 input[type=checkbox]{width:22px;height:22px;flex:none;padding:0}
 .opt canvas{display:block}
 .mem canvas{display:block;margin:-4px 0}

@@ -1,6 +1,7 @@
 const { BUBBLES, THROWABLES, findThrowable, draw, drawItem, itemInfo, height, width, bounds } = Sprites;
 const PJ = Projectiles;                      // 던지기 아이템 경로 계산 (shared/projectiles.js)
-const IA = Interaction;                      // SIDEY의 조작 규칙 (shared/interaction.js)
+const IA = Interaction;
+const SIZE = Math.min(1.6, Math.max(0.7, Number(window.api.settings.sizeScale) || 1));   // 내 화면의 캐릭터 크기 배율 (설정에서 70%~160%)                      // SIDEY의 조작 규칙 (shared/interaction.js)
 const cfg = window.api.settings;             // {uid, nickname, character, bubble, throwable, activeCode, showOffline, quietMode, throwGuard, serverUrl}
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let W, H;
@@ -36,6 +37,8 @@ function addOffline(o) {
   if (!showOffline || hasUid(o.uid)) return;
   addPeer({ id: 'off:' + o.uid, uid: o.uid, name: o.name, look: o.look, state: 'offline' }); const p = peers.get('off:' + o.uid); p.x = 40 + Math.random() * (W - 80); p.init = true;
 }
+
+addEventListener('resize', () => { for (const p of peers.values()) p.x = Math.min(p.x, Math.max(20, W - 20)); });   // 모니터를 바꾸는 등 화면 폭이 줄어도 캐릭터가 화면 밖에 남지 않게
 
 // ---------- 네트워크 ----------
 let ws;
@@ -115,8 +118,8 @@ function onHit(p, now, snd = 'boop') {          // 맞음: 모션 + 소리 + 기
 
 // ---------- 던지기 아이템: 날아가기 / 총 / 효과 ----------
 const rad = (d) => d * Math.PI / 180, rnd = (a, b) => a + Math.random() * (b - a);
-const center = (p) => ({ x: p.x, y: GROUND() - (p.bh || height(p.look)) / 2 });
-function gunPivot(p) { return { x: p.x + (p.dir >= 0 ? 1 : -1) * (p.bw || width(p.look)) * 0.22, y: GROUND() - (p.bh || height(p.look)) * 0.40 }; }   // 총을 쥔 손 위치(몸 앞쪽)
+const center = (p) => ({ x: p.x, y: GROUND() - (p.bh || height(p.look) * SIZE) / 2 });
+function gunPivot(p) { return { x: p.x + (p.dir >= 0 ? 1 : -1) * (p.bw || width(p.look) * SIZE) * 0.22, y: GROUND() - (p.bh || height(p.look) * SIZE) * 0.40 }; }   // 총을 쥔 손 위치(몸 앞쪽)
 function gunAim(p, now) {                                                      // 총이 향하는 각도: 쏘는 중이면 대상 쪽, 평소엔 보는 방향
   if (now < p.aimUntil && p.aimTarget) { const pv = gunPivot(p), t = center(p.aimTarget); return PJ.aimAngle(pv.x, pv.y, t.x, t.y); }
   return p.dir >= 0 ? 0 : Math.PI;
@@ -155,7 +158,7 @@ function drawFx(f, now) {                                                       
   const t = (now - f.start) / f.dur; if (t >= 1) return false; const q = (v) => Math.round(v / 4) * 4;                // 도트 느낌으로 4px 격자에 맞춤
   if (f.type === 'dot') { const el = (now - f.start) / 1000; g.globalAlpha = 1 - t; g.fillStyle = f.color; g.fillRect(q(f.x + f.vx * el), q(f.y + f.vy * el + 0.5 * f.gy * el * el), f.size, f.size); g.globalAlpha = 1; }
   else if (f.type === 'boom') {                                                    // 도트 폭발: 노랑->주황->빨강->연기, 안쪽부터 사라지는 별 모양
-    const R = 16 + 74 * Math.sqrt(t), cell = 4; g.globalAlpha = 1 - Math.max(0, (t - 0.55) / 0.45);
+    const R = (16 + 74 * Math.sqrt(t)) * SIZE, cell = 4; g.globalAlpha = 1 - Math.max(0, (t - 0.55) / 0.45);
     for (let gx = -R; gx <= R; gx += cell) for (let gy = -R; gy <= R; gy += cell) {
       const d = Math.hypot(gx, gy), an = Math.atan2(gy, gx), rr = R * (0.8 + 0.25 * Math.sin(5 * an + f.seed)); if (d > rr) continue; if (t > 0.5 && d < rr * (t - 0.5) * 1.4) continue;
       const k = d / rr; g.fillStyle = k < 0.3 ? '#fff3b0' : k < 0.55 ? '#ffb703' : k < 0.8 ? '#fb5607' : '#5c3a2e'; g.fillRect(q(f.x + gx), q(f.y + gy), cell, cell);
@@ -180,7 +183,7 @@ const throwOn = (now) => IA.throwEnabled({ connected: !!myId, stunned: selfStunn
 const hitTest = (x, y, now) => {
   for (const p of peers.values()) {
     if (p.state === 'offline' || (p.id !== myId && !throwOn(now))) continue;                // 친구는 던질 수 있을 때만 클릭 대상 (아니면 클릭이 아래 창으로 통과)
-    if (Math.abs(x - p.x) < (p.bw || width(p.look)) / 2 + 4 && y > GROUND() - (p.bh || height(p.look)) && y < GROUND()) return p;
+    if (Math.abs(x - p.x) < (p.bw || width(p.look) * SIZE) / 2 + 4 && y > GROUND() - (p.bh || height(p.look) * SIZE) && y < GROUND()) return p;
   }
   return null;
 };
@@ -274,13 +277,13 @@ function frame(now) {
   if (me && (now - lastPos > 200 || !!me.walking !== sentWalk)) { lastPos = now; sentWalk = !!me.walking; send({ t: 'pos', x: me.x / W, w: sentWalk ? 1 : 0, d: me.dir < 0 ? -1 : 1, e: cfg.throwable }); }   // 걷는 중 여부(w)와 방향(d)을 같이 알림
 
   for (const p of peers.values()) {
-    const [state, t] = motionOf(p, now), base = bounds(p.look, state, t);
+    const [state, t] = motionOf(p, now), b0 = bounds(p.look, state, t), base = { w: b0.w * SIZE, h: b0.h * SIZE };
     let scale = 1;                                  // 크기 효과: 1배 -> 7배 -> 1배 (오프라인은 제외)
     if (p.state !== 'offline' && p.pulseAt) { const el = (now - p.pulseAt) / 1000; if (el > IA.PULSE.up + IA.PULSE.down) p.pulseAt = 0; else scale = IA.pulseScale(el); }
     scale = Math.min(scale, Math.max(1, (H - 34) / Math.max(1, base.h)));      // 화면 위로 잘리지 않게
-    p.bw = base.w * scale; p.bh = base.h * scale; p.sc = scale;
+    p.bw = base.w * scale; p.bh = base.h * scale; p.sc = scale * SIZE;
     g.globalAlpha = p.state === 'offline' ? 0.75 : 1;
-    const top = draw(g, p.look, p.x, GROUND(), { state, t, flip: p.dir < 0, scale });
+    const top = draw(g, p.look, p.x, GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
     if (p.state !== 'offline' && (p.equip === 'gun' || now < p.gunUntil)) drawHeldGun(p, now);        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top);
@@ -303,7 +306,7 @@ function frame(now) {
     lastRegions = now; const rects = [];
     for (const p of peers.values()) {
       if (p.state === 'offline' || (p.id !== myId && !throwOn(now))) continue;
-      const w = (p.bw || width(p.look)) + 8, h = (p.bh || height(p.look)) + 4; rects.push({ x: Math.round(p.x - w / 2), y: Math.round(GROUND() - h + 2), w: Math.round(w), h: Math.round(h) });
+      const w = (p.bw || width(p.look) * SIZE) + 8, h = (p.bh || height(p.look) * SIZE) + 4; rects.push({ x: Math.round(p.x - w / 2), y: Math.round(GROUND() - h + 2), w: Math.round(w), h: Math.round(h) });
     }
     const key = JSON.stringify(rects); if (key !== lastRegionKey || now - lastRegionSend > 1000) { lastRegionKey = key; lastRegionSend = now; window.api.setRegions(rects); }   // 바뀌었거나 1초마다 다시 보냄(혹시 놓쳐도 복구)
   }
@@ -326,14 +329,14 @@ function frame(now) {
       g.save(); g.translate(p.x, p.y); g.rotate(ang); g.fillStyle = 'rgba(255,214,102,0.45)'; g.fillRect(-46, -1, 40, 2); g.fillStyle = '#ffd23f'; g.fillRect(-14, -2, 10, 4); g.fillStyle = '#fff8d0'; g.fillRect(-4, -3, 14, 6); g.restore();
     } else if (s.kind === 'missile') {                                             // 매직미사일: 곡선을 그리며 날아가고 불꽃 꼬리를 흘림
       const tt = Math.pow(t, 1.25), p = PJ.bezier(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, tt), ang = PJ.bezierAngle(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, tt);
-      drawItem(g, 'missile', p.x, p.y, { s: 2, angle: ang - rad(itemInfo('missile').forward) });
+      drawItem(g, 'missile', p.x, p.y, { s: 2 * SIZE, angle: ang - rad(itemInfo('missile').forward) });
       parts(p.x - Math.cos(ang) * 8, p.y - Math.sin(ang) * 8, 2, ['#9b8cff', '#d7bfff', '#ffffff'], { min: 5, max: 40, gy: -30, size: 4, dmin: 280, dmax: 420 });
     } else {
-      const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, s.kind === 'bomb' ? 95 : 70);
+      const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, (s.kind === 'bomb' ? 95 : 70) * SIZE);
       if (s.sprite) {
-        const ang = t * s.spin * (s.kind === 'bomb' ? 0.5 : 1); drawItem(g, s.sprite, p.x, p.y, { s: 2, angle: ang });
+        const ang = t * s.spin * (s.kind === 'bomb' ? 0.5 : 1); drawItem(g, s.sprite, p.x, p.y, { s: 2 * SIZE, angle: ang });
         if (s.kind === 'bomb') {                                                   // 도화선 불꽃이 깜빡이며 튐
-          const fu = itemInfo('bomb').fuse, it = itemInfo('bomb'), lx = (fu[0] - it.w / 2) * 2, ly = (fu[1] - it.h / 2) * 2, fxp = p.x + lx * Math.cos(ang) - ly * Math.sin(ang), fyp = p.y + lx * Math.sin(ang) + ly * Math.cos(ang);
+          const fu = itemInfo('bomb').fuse, it = itemInfo('bomb'), lx = (fu[0] - it.w / 2) * 2 * SIZE, ly = (fu[1] - it.h / 2) * 2 * SIZE, fxp = p.x + lx * Math.cos(ang) - ly * Math.sin(ang), fyp = p.y + lx * Math.sin(ang) + ly * Math.cos(ang);
           g.fillStyle = Math.floor(now / 70) % 2 ? '#ffd23f' : '#ff9f1c'; g.fillRect(Math.round(fxp) - 3, Math.round(fyp) - 3, 6, 6);
           if (Math.random() < 0.5) parts(fxp, fyp, 1, ['#ffd23f', '#ff9f1c', '#ffffff'], { min: 20, max: 80, gy: 100, size: 4, dmin: 150, dmax: 300 });
         }

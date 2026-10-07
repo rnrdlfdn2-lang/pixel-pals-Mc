@@ -1,6 +1,6 @@
 {
   "name": "dduknip-friends",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Friends-only pixel overlay chat",
   "author": "DDuknip-friends",
   "main": "main.js",
@@ -11,18 +11,59 @@
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never"
   },
-  "dependencies": { "ws": "^8.18.0" },
-  "devDependencies": { "electron": "^44.5.1", "electron-builder": "^26.15.3" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
   "build": {
     "appId": "com.dduknip.friends",
     "productName": "DDuknip-friends",
-    "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "preload.js", "config.json", "icon.png", "renderer/**", "settings/**", "history/**", "composer/**", "shared/**", "package.json"],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "config.json",
+      "icon.png",
+      "renderer/**",
+      "settings/**",
+      "history/**",
+      "composer/**",
+      "shared/**",
+      "package.json",
+      "update-source.json"
+    ],
     "artifactName": "DDuknip-friends-${version}-${os}-${arch}.${ext}",
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
-    "nsis": { "oneClick": true, "perMachine": false, "deleteAppDataOnUninstall": false },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "category": "public.app-category.social-networking",
       "identity": "-",
       "hardenedRuntime": true,

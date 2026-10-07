@@ -22,6 +22,12 @@
     <div class="card row"><div><div class="label">오프라인 멤버 표시</div><div class="desc">접속하지 않은 친구 캐릭터를 옆으로 누워 있는 모습으로 보여 줍니다.</div></div><input type="checkbox" id="showoff"></div>
     <div class="card row"><div><div class="label">던지기 전 오른쪽 두 번 클릭</div><div class="desc">끄면 친구 캐릭터를 왼쪽 클릭해서 바로 던져요. 켜면 내 캐릭터를 오른쪽으로 두 번 클릭한 뒤 10초 안에만 던질 수 있어요.</div></div><input type="checkbox" id="throwguard"></div>
     <div class="card row"><div><div class="label">효과음</div><div class="desc">맞는 소리, 폭발, 총소리 같은 효과음을 켜거나 꺼요.</div></div><input type="checkbox" id="soundon"></div>
+    <div class="card"><div class="label">캐릭터가 돌아다닐 모니터</div><div class="desc">모니터가 여러 개일 때, 캐릭터들이 어느 모니터 아래쪽에서 돌아다닐지 고를 수 있어요.</div>
+      <div id="displays" class="opts"></div><div class="inline" style="margin-top:10px"><button id="identify">모니터 번호 보기</button></div></div>
+    <div class="card"><div class="label">캐릭터 크기</div><div class="desc">내 화면에서 캐릭터가 보이는 크기를 70%~160% 사이에서 고를 수 있어요. (친구 화면에는 영향 없어요)</div>
+      <div class="sizebar"><input type="range" id="size" min="70" max="160" step="10"><span id="sizeval">100%</span><button id="sizereset">기본</button></div></div>
+    <div class="card row"><div><div class="label">업데이트</div><div class="desc" id="verdesc"></div></div><button id="checkupd">업데이트 확인</button></div>
+    <div class="card row"><div><div class="label">시작할 때 업데이트 자동 확인</div><div class="desc">앱을 켜고 20초 뒤, 그리고 6시간마다 새 버전이 있는지 확인해요. 있으면 물어본 뒤에 설치해요.</div></div><input type="checkbox" id="autoupd"></div>
     <p class="note">그룹 안에서 다른 멤버와 같은 캐릭터나 닉네임을 사용할 수 있습니다.</p>
   </section>
 
