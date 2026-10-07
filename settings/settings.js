@@ -21,6 +21,10 @@ function icon(look, s = 2) {                // 캐릭터 미리보기: 서 있�
   draw(g, look, n / 2, n - 2, { state: 'walk', t: 0, s }); return c;
 }
 
+function itemIcon(name) {                   // 도트 아이템 미리보기 (이모지처럼 한 칸에 들어가게)
+  const c = el('canvas', { width: 64, height: 44 }), g = c.getContext('2d'); Sprites.drawItem(g, name, 32, 22, { s: 2 }); c.style.display = 'block'; return c;
+}
+
 // ---------- 서버 요청 (짧게 연결 → 요청 → 응답 → 닫기) ----------
 const NET = '서버에 연결할 수 없어요. 서버 주소(config.json)를 확인해 주세요.';
 function rpc(op, data = {}) {
@@ -57,13 +61,15 @@ function renderProfile() {
   $('#nick').value = st.nickname;
   $('#showoff').checked = st.showOffline !== false;
   $('#throwguard').checked = !!st.throwGuard;
+  $('#soundon').checked = st.soundOn !== false;
   $('#chars').replaceChildren(options(CHARACTERS, (_, i) => i === st.character, (_, i) => icon(i), (_, i) => save({ character: i }, true)));
   $('#bubbles').replaceChildren(options(BUBBLES, (b) => b.id === st.bubble,
     (b) => el('div', { class: 'pill', style: `background:${b.bg};border-color:${b.border};color:${b.text}`, text: '안녕' }), (b) => save({ bubble: b.id })));
-  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === st.throwable, (t) => el('div', { class: 'emoji', text: t.emoji }), (t) => save({ throwable: t.id })));
+  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === st.throwable, (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => save({ throwable: t.id })));
 }
 $('#showoff').addEventListener('change', () => save({ showOffline: $('#showoff').checked }).then(() => toast('저장했어요')));
 $('#throwguard').addEventListener('change', () => save({ throwGuard: $('#throwguard').checked }).then(() => toast('저장했어요')));
+$('#soundon').addEventListener('change', () => save({ soundOn: $('#soundon').checked }).then(() => toast($('#soundon').checked ? '효과음을 켰어요' : '효과음을 껐어요')));
 $('#nick').addEventListener('input', () => ($('#nickerr').textContent = ''));
 $('#nick').addEventListener('change', () => {
   const v = $('#nick').value.trim(), n = [...v].length;

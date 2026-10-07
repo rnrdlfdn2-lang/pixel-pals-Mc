@@ -24,7 +24,7 @@ function loadSettings() {
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
   let s = {}; try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
   settings = { uid: crypto.randomUUID(), nickname: '', character: 0, bubble: 'default', throwable: 'ball', activeCode: '', showOffline: true, quietMode: false,
-    throwGuard: false, composerPlacement: null, groupSnapshots: [], ...s };
+    throwGuard: false, soundOn: true, composerPlacement: null, groupSnapshots: [], ...s };
   saveFile();
 }
 function saveFile() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); }
@@ -38,6 +38,7 @@ ipcMain.handle('settings:set', (_e, p = {}) => {
   if (typeof p.throwable === 'string') settings.throwable = p.throwable.slice(0, 16);
   if (typeof p.showOffline === 'boolean') settings.showOffline = p.showOffline;
   if (typeof p.throwGuard === 'boolean') settings.throwGuard = p.throwGuard;
+  if (typeof p.soundOn === 'boolean') settings.soundOn = p.soundOn;
   if (typeof p.activeCode === 'string') { const changed = p.activeCode !== settings.activeCode; settings.activeCode = p.activeCode.slice(0, 20); if (changed && historyWin) historyWin.webContents.send('history:refresh'); }
   saveFile();
   if (win) win.webContents.reload();          // 오버레이가 새 설정으로 다시 접속
@@ -175,6 +176,9 @@ ipcMain.handle('chat:send', (_e, text) => new Promise((resolve) => {
 ipcMain.on('chat:result', (_e, ok) => { if (pendingChat) { const r = pendingChat; pendingChat = null; r(!!ok); } });
 
 // ---- 트레이 메뉴의 동작들 ----
+function toggleSound() {                          // 효과음 켜기/끄기 (트레이 메뉴): 바로 적용되고 저장돼요
+  settings.soundOn = !settings.soundOn; saveFile(); if (win) win.webContents.send('sound', settings.soundOn);
+}
 const toggleOverlay = () => (win.isVisible() ? win.hide() : win.showInactive());
 function toggleQuiet() {                       // 조용히 모드: 말풍선과 입력 중 표시를 숨김 (접속 상태 점은 그대로)
   settings.quietMode = !settings.quietMode; saveFile(); win.webContents.send('quiet', settings.quietMode);
@@ -236,6 +240,7 @@ function buildMenu() {
     { type: 'separator' },
     { label: '사용 중인 그룹', submenu: groupItems },
     { label: '조용히 모드', type: 'checkbox', checked: !!settings.quietMode, ...hint('quiet'), click: toggleQuiet },
+    { label: '효과음', type: 'checkbox', checked: settings.soundOn !== false, click: toggleSound },
     { label: '최근 기록…', ...hint('history'), click: openHistory },
     { label: '그룹 설정…', click: () => openSettings('groups') },
     { label: '로그인 시 자동 실행', type: 'checkbox', checked: loginEnabled(), click: (item) => setLogin(item.checked) },

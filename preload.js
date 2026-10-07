@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
   // 그 밖
   onPresence: (cb) => ipcRenderer.on('presence', (_e, s) => cb(s)),
   onQuiet: (cb) => ipcRenderer.on('quiet', (_e, v) => cb(v)),
+  onSound: (cb) => ipcRenderer.on('sound', (_e, v) => cb(v)),
   onShowPage: (cb) => ipcRenderer.on('settings:page', (_e, p) => cb(p)),
   onHistoryRefresh: (cb) => ipcRenderer.on('history:refresh', () => cb()),
 });

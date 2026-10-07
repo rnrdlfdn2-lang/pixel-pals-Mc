@@ -65,6 +65,11 @@
     return out;
   }
   const whiten = (m) => m.map((r) => r.map((c) => ('.OE'.includes(c) ? c : 'W')));
+  // 서 있는 그림을 '앉은' 모습으로: 얼굴(머리)은 그대로 두고, 아래쪽 몸통/다리를 낮춰서 주저앉은 느낌을 낸다.
+  function sitting(m, headRatio = 0.66, bodyScale = 0.5) {
+    const cut = Math.round(m.length * headRatio);
+    return [...m.slice(0, cut), ...resize(m.slice(cut), 1, bodyScale)];
+  }
   function compose(m, C, dx = 0, dy = 0) {  // 정사각 캔버스의 아래 가운데에 놓기 (dy>0 = 위로 띄움)
     const h = m.length, w = W(m), out = Array.from({ length: C }, () => Array(C).fill('.')), x0 = Math.floor((C - w) / 2) + dx, y0 = C - h - dy;
     m.forEach((r, y) => r.forEach((c, x) => { const X = x0 + x, Y = y0 + y; if (c !== '.' && X >= 0 && X < C && Y >= 0 && Y < C) out[Y][X] = c; }));
@@ -80,7 +85,7 @@
     const all = [base, thrSrc, ...Object.values(pose)].filter(Boolean), dims = all.map((m) => Math.max(m.length, W(m)));
     if (hitSrc) dims.push(Math.ceil(Math.max(hitSrc.length, W(hitSrc)) * 1.25));      // 맞을 때 옆으로 퍼지는 여유
     const C = Math.max(...dims) + 4, put = (m, dx, dy) => compose(m, C, dx, dy);
-    const closed = closedEyes(base), eyesHit = hitEyes(base), he = hitSrc || eyesHit, lying = rotate(closed);
+    const closed = closedEyes(base), eyesHit = hitEyes(base), he = hitSrc || eyesHit, sit = closedEyes(sitting(base));
     const breathe = (m) => put(dropRow(m, safeRow(m))), sway = (m, k) => put(shear(m, k));
     const P = pose;
     return {
@@ -89,12 +94,12 @@
       walk:    P.walk ? [put(P.walk), put(shear(P.walk, 1), 0, 1), put(P.walk), put(shear(P.walk, -1), 0, 1)]
                       : [put(base), put(shear(baseB, 1), 0, 1), put(base), put(shear(baseB, -1), 0, 1)],                               // 뒤뚱뒤뚱 (발걸음마다 통통)
       doze:    P.doze ? [put(P.doze), P.doze2 ? put(P.doze2) : sway(dropRow(P.doze, safeRow(P.doze)), 1)] : [put(closed), sway(dropRow(closed, safeRow(closed)), 1)],   // 졸기
-      offline: P.offline ? [put(P.offline), sway(P.offline, 1)] : [put(lying), sway(lying, 1)],                                          // 누워 있기
+      offline: P.offline ? [put(P.offline), sway(P.offline, 1)] : [put(sit), breathe(sit)],                                          // 눈 감고 앉아 있기 (숨쉬듯 살짝 눌림)
       throw:   [put(shear(resize(base, 1, 0.94), -2)), thrSrc ? put(thrSrc) : put(shear(resize(base, 0.96, 1.06), 2)), put(base)],     // 뒤로 젖힘 -> 던짐 -> 복귀
       hit:     [put(whiten(resize(he, 1.2, 0.78))), put(resize(he, 0.9, 1.12)), put(he)],                                               // 번쩍+찌그러짐 -> 늘어남 -> 복귀
       stun:    P.stun ? [put(P.stun), sway(P.stun, 1)] : [put(eyesHit), sway(eyesHit, 1)],                                              // 기절
     };
   }
-  root.Motion = { buildMotions, trim, resize, shear, closedEyes, hitEyes, rotate, whiten, compose };
+  root.Motion = { buildMotions, trim, resize, shear, closedEyes, hitEyes, rotate, whiten, compose, sitting };
   if (typeof module !== 'undefined') module.exports = root.Motion;
 })(typeof window !== 'undefined' ? window : globalThis);

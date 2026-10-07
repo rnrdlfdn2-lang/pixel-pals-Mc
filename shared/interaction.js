@@ -42,8 +42,12 @@
 
   // 다른 사람 캐릭터가 '걷는 중'인지 판단: 위치 신호가 늦게 몰려 와도(네트워크 흔들림) 걷던 동작이 끊기지 않게,
   // 마지막으로 움직임이 있은 뒤 holdMs 동안은 계속 걷는 중으로 본다. (목표와 catchUpPx 이상 멀면 따라잡는 중이니 걷는 중)
-  const REMOTE = { holdMs: 700, minMovePx: 0.5, catchUpPx: 6 };
-  const remoteWalking = (now, lastMoveAt, d) => now - lastMoveAt < REMOTE.holdMs || Math.abs(d) > REMOTE.catchUpPx;
+  // 보내는 쪽이 '걷는 중'을 직접 알려 주면(syncWalk 가 true/false) 그 값을 그대로 쓴다 -> 신호가 늦게 와도 상태가 흔들리지 않음.
+  // 알려 주지 않는 예전 버전이면(syncWalk 가 undefined) 위치가 움직였는지로 추측하되, 끊김에 덜 흔들리게 holdMs 를 길게 잡는다.
+  const REMOTE = { holdMs: 1500, minMovePx: 0.5, catchUpPx: 6, catchUpFarPx: 14 };
+  const remoteWalking = (now, lastMoveAt, d, syncWalk) => (syncWalk === undefined
+    ? now - lastMoveAt < REMOTE.holdMs || Math.abs(d) > REMOTE.catchUpPx
+    : !!syncWalk || Math.abs(d) > REMOTE.catchUpFarPx);                // 알려 준 상태 + (너무 멀리 뒤처졌을 때만) 따라잡는 중
 
   root.Interaction = { PULSE, THROW, HIT_MS, STUN, REMOTE, pulseScale, remoteWalking, Cooldown, SelfClick, RightClick, throwEnabled };
   if (typeof module !== 'undefined') module.exports = root.Interaction;
