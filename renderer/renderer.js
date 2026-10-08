@@ -78,7 +78,7 @@ function handle(m) {
     if (m.w !== undefined) { p.syncWalk = !!m.w; p.dir = m.d === -1 ? -1 : 1; }                // 보내는 쪽이 알려 준 상태를 그대로 사용
     else if (Math.abs(dx) > IA.REMOTE.minMovePx) { p.lastMoveAt = now; p.dir = dx > 0 ? 1 : -1; }   // (예전 버전) 위치 변화로 추측
   }
-  else if (m.t === 'chat') { const p = peers.get(m.id); if (p) { p.typing = 0; p.bubble = { text: m.text, style: bubbleStyle(m.bubble), until: now + 5000 }; } }
+  else if (m.t === 'chat') { const p = peers.get(m.id); if (p) { p.typing = 0; p.bubbles = IA.pushBubble(p.bubbles, m.text, bubbleStyle(m.bubble), now); } }       // 연속 채팅은 위로 쌓여서 조금 더 보임
   else if (m.t === 'throw') {
     const a = peers.get(m.from), b = peers.get(m.to); if (!a || !b) return;
     a.throwAt = now; a.dir = Math.sign(b.x - a.x) || a.dir;                       // 던지는 모션 (받는 쪽을 바라봄)
@@ -107,13 +107,29 @@ const SND = {
   shot: () => { noise(0.09, 3500, 700, 0.35, 'bandpass'); tone(800, 160, 0.1, 'square', 0.12); },                 // 총소리
   tick: () => tone(1200, 400, 0.06, 'square', 0.08),                                                              // 총알이 맞는 소리
   zap: () => { tone(500, 1500, 0.28, 'triangle', 0.12); noise(0.2, 6000, 1500, 0.08, 'highpass'); },              // 마법이 터지는 소리
-  whoosh: () => noise(0.5, 400, 3000, 0.1, 'bandpass'),                                                           // 미사일이 날아가는 소리
+  whoosh: () => noise(0.5, 400, 3000, 0.1, 'bandpass'),
+  bump: (power = 0.5) => { noise(0.14, 700, 100, 0.2 + 0.3 * power); tone(140, 50, 0.12, 'sine', 0.2 + 0.25 * power); },       // 벽에 쿵
+  block: () => { tone(900, 1500, 0.09, 'triangle', 0.09); tone(1800, 2400, 0.05, 'sine', 0.04); },               // 무적이라 막힌 소리 (띵)                                                           // 미사일이 날아가는 소리
   splat: () => { noise(0.14, 700, 200, 0.3); tone(170, 70, 0.12, 'sine', 0.2); },                                 // 철퍼덕
 };
-function onHit(p, now, snd = 'boop') {          // 맞음: 모션 + 소리 + 기절 판정 (10초 안에 10번 -> 6초 기절)
+function onHit(p, now, snd = 'boop', dir = 0) {  // 맞음: 모션 + 소리 + 기절 판정 (10초 안에 10번 -> 6초 기절, 기절 중/풀린 뒤 2초는 무적이라 안 맞음). dir: 공격이 날아온 방향
+  const r = IA.registerHit(p, now, dir); if (r === 'blocked') return false;
   p.hitAt = now; (SND[snd] || boop)();
-  p.hits = p.hits.filter((t) => now - t < IA.STUN.windowMs); p.hits.push(now);
-  if (p.hits.length >= IA.STUN.hits) { p.stunUntil = now + IA.STUN.durationMs; p.hits = []; }
+  if (r === 'stun') launch(p, now);               // 기절하면서 맞은 반대 방향으로 날아감 (세기 = 기절 직전 3초 안에 맞은 횟수)
+  return true;
+}
+function launch(p, now) {                         // 모든 사람 화면에서 같은 입력으로 같은 계산을 하므로 서버 없이도 똑같이 날아감
+  if (!IA.startKnock(p, W)) return; p.dir = -Math.sign(p.kb.v) || p.dir;      // 날아가는 동안 때린 쪽을 바라봄
+  SND.whoosh(); parts(p.x, GROUND() - 20, 8 + Math.round(p.kb.level * 10), ['#ffffff', '#d7dbe6', '#a9b0c5'], { angle: p.kb.v > 0 ? Math.PI : 0, spread: 0.7, min: 60, max: 240, gy: 60, dmin: 250, dmax: 500 });
+}
+function wallFx(p, impact, now) {                 // 벽에 부딪힘: 먼지 + 소리 + 화면이 흔들림 (세게 부딪힐수록 크게)
+  const side = p.x < W / 2 ? -1 : 1, power = Math.min(1, impact / 1500); SND.bump(power);
+  parts(p.x + side * 8, GROUND() - 24, 6 + Math.round(power * 12), ['#ffffff', '#cfd4e4', '#ffd23f'], { angle: side < 0 ? 0 : Math.PI, spread: 1.0, min: 50, max: 120 + 260 * power, gy: 300, dmin: 250, dmax: 600 });
+  fx.push({ type: 'ring', x: p.x + side * 10, y: GROUND() - 26, start: now, dur: 300, color: '#ffffff' }); shakeUntil = Math.max(shakeUntil, now + 120 + 260 * power);
+}
+function blockFx(t, now) {                      // 무적이라 막혔을 때: 파란 방어막 효과
+  SND.block(); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 320, color: '#8ecbff' });
+  parts(t.x, t.y, 6, ['#8ecbff', '#ffffff', '#c9e8ff'], { min: 60, max: 160, gy: 0, dmin: 200, dmax: 380, size: 4 });
 }
 
 // ---------- 던지기 아이템: 날아가기 / 총 / 효과 ----------
@@ -148,11 +164,13 @@ function parts(x, y, n, colors, o = {}) {                                       
     fx.push({ type: 'dot', x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - (o.up || 0), gy: o.gy === undefined ? 420 : o.gy, size: o.size || (Math.random() < 0.5 ? 4 : 6), color: colors[(Math.random() * colors.length) | 0], start: performance.now(), dur: rnd(o.dmin || 300, o.dmax || 560) }); }
 }
 function impact(s, t, now) {
-  if (s.kind === 'bomb') { onHit(s.to, now, 'boom'); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 620, seed: Math.random() * 6 }); parts(t.x, t.y, 14, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae'], { min: 90, max: 300, up: 90, dmin: 450, dmax: 800 }); shakeUntil = now + 320; }
-  else if (s.kind === 'missile') { onHit(s.to, now, 'zap'); parts(t.x, t.y, 18, ['#9b8cff', '#d7bfff', '#ffffff', '#7a6bff'], { min: 80, max: 260, gy: 0, dmin: 350, dmax: 600 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 380, color: '#b9a9ff' }); }
-  else if (s.kind === 'gun') { onHit(s.to, now, 'tick'); parts(t.x, t.y, 8, ['#fff6b0', '#ffd23f', '#ffffff'], { min: 80, max: 240, gy: 200, dmin: 160, dmax: 300, size: 4 }); }
-  else if (s.sprite === 'poop') { onHit(s.to, now, 'splat'); parts(t.x, t.y, 12, ['#b47449', '#9e643c', '#915a35'], { min: 60, max: 200, up: 70, dmin: 350, dmax: 600 }); }
-  else onHit(s.to, now, 'boop');
+  const dir = Math.sign(t.x - s.x0) || 1;                                       // 공격이 날아온 방향 (+1: 왼쪽에서 오른쪽으로)
+  if (IA.isGuarded(s.to, now)) { blockFx(t, now); return; }                     // 기절 중이거나 막 풀린 상대는 맞지 않음 (폭탄도 안 터짐)
+  if (s.kind === 'bomb') { onHit(s.to, now, 'boom', dir); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 620, seed: Math.random() * 6 }); parts(t.x, t.y, 14, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae'], { min: 90, max: 300, up: 90, dmin: 450, dmax: 800 }); shakeUntil = now + 320; }
+  else if (s.kind === 'missile') { onHit(s.to, now, 'zap', dir); parts(t.x, t.y, 18, ['#9b8cff', '#d7bfff', '#ffffff', '#7a6bff'], { min: 80, max: 260, gy: 0, dmin: 350, dmax: 600 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 380, color: '#b9a9ff' }); }
+  else if (s.kind === 'gun') { onHit(s.to, now, 'tick', dir); parts(t.x, t.y, 8, ['#fff6b0', '#ffd23f', '#ffffff'], { min: 80, max: 240, gy: 200, dmin: 160, dmax: 300, size: 4 }); }
+  else if (s.sprite === 'poop') { onHit(s.to, now, 'splat', dir); parts(t.x, t.y, 12, ['#b47449', '#9e643c', '#915a35'], { min: 60, max: 200, up: 70, dmin: 350, dmax: 600 }); }
+  else onHit(s.to, now, 'boop', dir);
 }
 function drawFx(f, now) {                                                          // false 를 돌려주면 끝난 효과
   const t = (now - f.start) / f.dur; if (t >= 1) return false; const q = (v) => Math.round(v / 4) * 4;                // 도트 느낌으로 4px 격자에 맞춤
@@ -191,9 +209,12 @@ cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('mousedown', (e) => {
   const now = performance.now(), p = hitTest(e.offsetX, e.offsetY, now); if (!p) return;
   if (p.id === myId) {
-    if (e.button === 0) selfClick.click(now);                                                  // 한 번: 입력창 / 두 번: 크기 효과
+    if (e.button === 0) { window.api.selfClick(); selfClick.click(now); }                                                  // 한 번: 입력창 / 두 번: 크기 효과
     else if (e.button === 2 && cfg.throwGuard && rightClick.press(now)) armedUntil = now + IA.THROW.armMs;   // 오른쪽 두 번: 10초 동안 던지기 대기
-  } else if (e.button === 0 && throwCd.accept('throw', now)) { AC.resume(); armedUntil = 0; send({ t: 'throw', to: p.id, item: myThrow }); }
+  } else if (e.button === 0) {
+    if (IA.isGuarded(p, now)) { blockFx(center(p), now); return; }                          // 기절 중이거나 막 풀린(무적) 친구에게는 던질 수 없음
+    if (throwCd.accept('throw', now)) { AC.resume(); armedUntil = 0; send({ t: 'throw', to: p.id, item: myThrow }); }
+  }
 });
 
 // 입력창(별도 창)과의 연결: 메시지 보내기 / 입력 중 표시
@@ -218,7 +239,7 @@ function nameplate(p, top) {                         // SIDEY처럼: [●] (이�
   g.fillStyle = DOT[p.state] || DOT.online; g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 1.5;
   g.beginPath(); g.arc(x0 + dotR, y + h / 2, dotR, 0, 7); g.fill(); g.stroke();
 }
-function bubble(text, cx, bottom, st) {
+function bubble(text, cx, bottom, st, tail = true) {                       // 말풍선 하나 그리기 -> 위쪽 y 를 돌려줌(위에 다음 말풍선을 쌓기 위해)
   g.font = '13px system-ui, sans-serif';
   const lines = []; let line = '';
   for (const w of text.split(' ')) {
@@ -230,9 +251,15 @@ function bubble(text, cx, bottom, st) {
   const x = Math.min(W - w - 4, Math.max(4, cx - w / 2)), y = bottom - h - 8;
   g.fillStyle = st.bg; g.strokeStyle = st.border; g.lineWidth = 2;
   g.beginPath(); g.roundRect(x, y, w, h, 8); g.fill(); g.stroke();
-  g.beginPath(); g.moveTo(cx - 5, y + h); g.lineTo(cx, y + h + 7); g.lineTo(cx + 5, y + h); g.fill();
+  if (tail) { g.beginPath(); g.moveTo(cx - 5, y + h); g.lineTo(cx, y + h + 7); g.lineTo(cx + 5, y + h); g.fill(); }
   g.fillStyle = st.text; g.textAlign = 'left';
   lines.forEach((l, i) => g.fillText(l, x + 8, y + 18 + i * 16));
+  return y;
+}
+function bubbles(list, cx, bottom) {                                       // 최신 말풍선이 캐릭터 가장 가까이, 이전 것은 그 위로 쌓음 (꼬리는 최신 것만)
+  let b = bottom;
+  for (let i = list.length - 1; i >= 0; i--) { const it = list[i], newest = i === list.length - 1; g.globalAlpha = it.alpha * (newest ? 1 : 0.9); b = bubble(it.text, cx, b, it.style, newest) + 4; }
+  g.globalAlpha = 1;
 }
 function typingDots(cx, bottom, now) {               // 입력 중: 점 세 개가 통통
   g.fillStyle = '#fff'; g.strokeStyle = '#2b2d42'; g.lineWidth = 2;
@@ -250,6 +277,7 @@ function motionOf(p, now) {                          // 지금 어떤 모션인�
 }
 const frozen = (p, now) => p.state !== 'online' || p.stunUntil > now || now - p.hitAt < IA.HIT_MS || now - p.throwAt < 390;
 
+if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
 let last = performance.now(), lastPos = 0, sentWalk = false, lastRegions = 0, lastRegionKey = '', lastRegionSend = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -258,19 +286,33 @@ function frame(now) {
 
   for (const p of peers.values()) {
     if (p.state === 'offline') continue;
+    if (p.kb) {                                    // 맞고 날아가는 중: 내 캐릭터든 친구든 모든 화면이 같은 계산으로 날려 보냄 (서버 위치 신호는 끝난 뒤에 맞춤)
+      const k = p.kb, r = IA.stepKnock(p, dt, W);
+      if (r.bounced) wallFx(p, r.impact, now);
+      k.spin += Math.sign(k.v) * Math.min(16, Math.abs(k.v) / 150) * dt;                                    // 빠를수록 빙글빙글
+      if (Math.abs(k.v) < 300) k.spin += (Math.round(k.spin / (2 * Math.PI)) * 2 * Math.PI - k.spin) * Math.min(1, dt * 10);   // 느려지면 똑바로 서도록 부드럽게
+      if (Math.abs(k.v) > 500 && Math.random() < dt * 40) parts(p.x, GROUND() - 16, 1, ['#ffffff', '#cfd4e4'], { min: 10, max: 60, gy: 80, size: 4, dmin: 200, dmax: 350 });    // 지나간 자리에 먼지
+    }
     if (p.id === myId) {                           // 내 캐릭터: 혼자 어슬렁어슬렁 (졸거나 맞는 중엔 멈춤)
-      if (frozen(p, now)) p.walking = false;
-      else if (p.wait > 0) { p.wait -= dt; p.walking = false; }
+      if (frozen(p, now)) { p.walking = false; p.escaping = false; }
       else {
-        if (p.tx == null) p.tx = 40 + Math.random() * (W - 80);
-        const d = p.tx - p.x;
-        if (Math.abs(d) < 2) { p.tx = null; p.wait = 1 + Math.random() * 4; p.walking = false; }
-        else { p.dir = Math.sign(d); p.x += p.dir * SPEED * dt; p.walking = true; }
+        // 다른 캐릭터와 겹쳐서 말풍선/이름표가 가려질 땐, 겹친 순간 빠르게(3배) 걸어서 벗어남 (상대도 자기 화면에서 똑같이 비켜줌)
+        const others = []; for (const o of peers.values()) if (o.id !== myId && o.state !== 'offline') others.push({ id: o.id, x: o.x, w: o.bw || width(o.look) * SIZE });
+        const esc = IA.escapePlan({ x: p.x, w: p.bw || width(p.look) * SIZE, others, W, escaping: !!p.escaping, myId });
+        if (esc.escape) { p.escaping = true; p.wait = 0; p.tx = esc.target; }
+        else if (p.escaping) { p.escaping = false; p.tx = null; p.wait = 0.5 + Math.random(); }
+        if (p.wait > 0) { p.wait -= dt; p.walking = false; }
+        else {
+          if (p.tx == null) p.tx = 40 + Math.random() * (W - 80);
+          const d = p.tx - p.x;
+          if (Math.abs(d) < 2) { p.tx = null; p.wait = p.escaping ? 0 : 1 + Math.random() * 4; p.walking = false; }
+          else { p.dir = Math.sign(d); p.x += p.dir * SPEED * (p.escaping ? IA.ESCAPE.speedMul : 1) * dt; p.walking = true; }
+        }
       }
     } else {                                       // 친구 캐릭터: 받은 위치로 부드럽게
       const d = p.rx * W - p.x;
       p.walking = IA.remoteWalking(now, p.lastMoveAt, d, p.syncWalk) && !frozen(p, now);          // 보내는 쪽이 알려 준 상태를 따름 (신호가 늦어도 안 흔들림)
-      p.x += d * Math.min(1, dt * 8);
+      if (!p.kb) p.x += d * Math.min(1, dt * 8);                                            // 날아가는 동안은 직접 계산한 위치를 씀
     }
   }
   const me = peers.get(myId);
@@ -282,13 +324,18 @@ function frame(now) {
     if (p.state !== 'offline' && p.pulseAt) { const el = (now - p.pulseAt) / 1000; if (el > IA.PULSE.up + IA.PULSE.down) p.pulseAt = 0; else scale = IA.pulseScale(el); }
     scale = Math.min(scale, Math.max(1, (H - 34) / Math.max(1, base.h)));      // 화면 위로 잘리지 않게
     p.bw = base.w * scale; p.bh = base.h * scale; p.sc = scale * SIZE;
-    g.globalAlpha = p.state === 'offline' ? 0.75 : 1;
-    const top = draw(g, p.look, p.x, GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
-    if (p.state !== 'offline' && (p.equip === 'gun' || now < p.gunUntil)) drawHeldGun(p, now);        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
+    g.globalAlpha = p.state === 'offline' ? 0.75 : (p.stunUntil <= now && IA.isGuarded(p, now) && Math.floor(now / 100) % 2 ? 0.4 : 1);       // 기절이 풀린 뒤 무적인 동안 깜빡임
+    let top;
+    if (p.kb) {                                    // 날아가는 중: 속도에 비례해 떠오르고 빙글빙글 돎
+      const lift = Math.min(46, Math.abs(p.kb.v) * 0.025), bh = p.bh || 50, cy = GROUND() - lift - bh / 2;
+      g.save(); g.translate(p.x, cy); g.rotate(p.kb.spin); draw(g, p.look, 0, bh / 2, { state, t, flip: p.dir < 0, scale: scale * SIZE }); g.restore(); top = GROUND() - lift - bh;
+    } else top = draw(g, p.look, p.x, GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
+    if (!p.kb && p.state !== 'offline' && (p.equip === 'gun' || now < p.gunUntil)) drawHeldGun(p, now);        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top);
     if (!quiet) {
-      if (p.bubble && now < p.bubble.until) bubble(p.bubble.text, p.x, top - 32, p.bubble.style);
+      const vb = IA.visibleBubbles(p.bubbles, now);
+      if (vb.length) bubbles(vb, p.x, top - 32);
       else if (p.typing > now) typingDots(p.x, top - 32, now);
     }
     if (state === 'doze') {                        // 졸 때: z z Z 가 위로 떠오름

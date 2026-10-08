@@ -2,7 +2,8 @@ const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, nativeI
 const path = require('path'), fs = require('fs'), crypto = require('crypto');
 const WebSocket = require('ws');
 const { spawn } = require('child_process');
-const upd = require('./update.js');           // 업데이트 확인/내려받기 로직
+const upd = require('./update.js');
+const Shortcuts = require('./shared/shortcuts.js');           // 단축키 검사           // 업데이트 확인/내려받기 로직
 
 // 앱 이름을 바꿔도 기존 설정/그룹/신원이 사라지지 않게 데이터 폴더 이름은 고정한다 (Windows: %APPDATA%\pixel-pals, Mac: ~/Library/Application Support/pixel-pals)
 app.setPath('userData', path.join(app.getPath('appData'), 'pixel-pals'));
@@ -16,7 +17,9 @@ const bundled = readJson(path.join(__dirname, 'config.json')), userCfg = readJso
 const base = { ...bundled, ...userCfg, shortcuts: { ...bundled.shortcuts, ...userCfg.shortcuts } };
 const serverUrl = process.env.PIXELPALS_SERVER || base.serverUrl || 'ws://localhost:8080';
 const AWAY_SECONDS = base.awaySeconds || 60;   // 이 시간 동안 입력이 없으면 '자리 비움' -> 캐릭터가 졸아요
-const SC = { overlay: 'Ctrl+Alt+H', composer: base.shortcut || 'Ctrl+Alt+I', quiet: 'Ctrl+Alt+M', history: 'Ctrl+Alt+R', ...(base.shortcuts || {}) };
+const DEFAULT_SC = { overlay: 'Ctrl+Alt+H', composer: base.shortcut || 'Ctrl+Alt+I', quiet: 'Ctrl+Alt+M', history: 'Ctrl+Alt+R', ...(base.shortcuts || {}) };   // 기본 단축키
+let SC = { ...DEFAULT_SC };                 // 지금 쓰는 단축키 (설정에서 바꾼 값이 기본값 위에 덮임)
+const SC_LABEL = { overlay: '픽셀 월드 숨기기/보이기', composer: '채팅창 열기', quiet: '조용히 모드', history: '최근 기록 창' };
 
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => openSettings());
@@ -26,11 +29,11 @@ function loadSettings() {
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
   let s = {}; try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
   settings = { uid: crypto.randomUUID(), nickname: '', character: 0, bubble: 'default', throwable: 'ball', activeCode: '', showOffline: true, quietMode: false,
-    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, composerPlacement: null, groupSnapshots: [], ...s };
-  saveFile();
+    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, closeOnBlur: true, shortcuts: {}, composerPlacement: null, groupSnapshots: [], ...s };
+  SC = effectiveShortcuts(); saveFile();
 }
 function saveFile() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); }
-const view = () => ({ ...settings, serverUrl, doubleClickMs: base.doubleClickMs, appVersion: app.getVersion() });
+const view = () => ({ ...settings, serverUrl, doubleClickMs: base.doubleClickMs, appVersion: app.getVersion(), shortcuts: SC, shortcutDefaults: DEFAULT_SC, testMode: !!process.env.PIXELPALS_TEST_CURSOR });
 
 ipcMain.on('settings:get', (e) => (e.returnValue = view()));
 ipcMain.handle('settings:set', (_e, p = {}) => {
@@ -44,6 +47,7 @@ ipcMain.handle('settings:set', (_e, p = {}) => {
   if ('displayId' in p && (p.displayId === null || Number.isInteger(p.displayId))) settings.displayId = p.displayId;                      // 캐릭터가 돌아다닐 모니터 (null = 주 모니터)
   if (typeof p.sizeScale === 'number' && Number.isFinite(p.sizeScale)) settings.sizeScale = Math.round(Math.min(1.6, Math.max(0.7, p.sizeScale)) * 100) / 100;   // 캐릭터 크기 70%~160%
   if (typeof p.autoUpdateCheck === 'boolean') settings.autoUpdateCheck = p.autoUpdateCheck;
+  if (typeof p.closeOnBlur === 'boolean') settings.closeOnBlur = p.closeOnBlur;                                                          // 다른 곳을 누르면 채팅창 닫기
   if (typeof p.activeCode === 'string') { const changed = p.activeCode !== settings.activeCode; settings.activeCode = p.activeCode.slice(0, 20); if (changed && historyWin) historyWin.webContents.send('history:refresh'); }
   saveFile(); placeOverlay();                 // 모니터를 바꿨으면 오버레이를 그 모니터로 옮김
   if (win) win.webContents.reload();          // 오버레이가 새 설정으로 다시 접속
@@ -172,6 +176,12 @@ function createComposer() {
   composerWin.on('show', () => { composerShown = true; notifyComposer(); }); composerWin.on('hide', () => { composerShown = false; notifyComposer(); });
   composerWin.on('move', () => { if (placing || !composerShown) return; clearTimeout(moveTimer); moveTimer = setTimeout(savePlacement, 400); });   // 보이는 상태에서 사용자가 옮겼을 때만 위치 저장 (만들어질 때 운영체제가 정한 자리를 저장하면 안 됨)
   composerWin.on('closed', () => { composerWin = null; composerShown = false; });
+  composerWin.on('focus', () => clearTimeout(blurTimer));
+  composerWin.on('blur', () => {                                         // 다른 곳(다른 창/바탕화면/캐릭터)을 눌러서 포커스를 잃으면 닫기
+    if (settings.closeOnBlur === false || !composerShown || Date.now() - composerShownAt < 500) return;     // 막 열린 직후의 포커스 이동은 무시
+    clearTimeout(blurTimer);
+    blurTimer = setTimeout(() => { if (Date.now() - lastSelfClick < 700) return; if (composerShown && composerWin && !composerWin.isFocused()) hideComposer(); }, 180);
+  });
 }
 function placeComposer() {
   const pl = settings.composerPlacement, displays = screen.getAllDisplays();
@@ -185,15 +195,17 @@ function savePlacement() {
   const b = composerWin.getBounds(), d = screen.getDisplayMatching(b);
   settings.composerPlacement = { display: d.id, x: b.x - d.workArea.x, y: b.y - d.workArea.y }; saveFile();
 }
-let wantComposer = false;                       // 마지막으로 요청된 상태 (열기 요청 뒤 곧바로 닫기 요청이 오면 열지 않음)
+let wantComposer = false, blurTimer = null, lastSelfClick = 0, composerShownAt = 0;
+// 내 캐릭터를 누르면(열기/닫기 토글) 채팅창이 포커스를 잃어도 '다른 곳 클릭'으로 보지 않는다. 화면이 알려 주는 신호(overlay:selfclick)가 포커스 이동보다 늦게 와도 되게 닫기를 잠깐 미룬다.
+ipcMain.on('overlay:selfclick', () => { lastSelfClick = Date.now(); clearTimeout(blurTimer); });                       // 마지막으로 요청된 상태 (열기 요청 뒤 곧바로 닫기 요청이 오면 열지 않음)
 function showComposer() {
   wantComposer = true;
   if (composerOpen()) { composerWin.focus(); return; }
-  const go = () => { if (!wantComposer || !composerWin) return; placeComposer(); composerWin.show(); app.focus({ steal: true }); composerWin.focus(); composerWin.webContents.send('composer:shown'); };
+  const go = () => { if (!wantComposer || !composerWin) return; placeComposer(); composerShownAt = Date.now(); composerWin.show(); app.focus({ steal: true }); composerWin.focus(); composerWin.webContents.send('composer:shown'); };
   if (!composerWin) createComposer();
   if (composerWin.webContents.isLoading()) composerWin.webContents.once('did-finish-load', go); else go();
 }
-const hideComposer = () => { wantComposer = false; if (composerWin && composerShown) composerWin.hide(); };
+const hideComposer = () => { wantComposer = false; clearTimeout(blurTimer); if (composerWin && composerShown) composerWin.hide(); };
 const toggleComposer = () => (composerOpen() ? hideComposer() : showComposer());
 ipcMain.on('composer:set', (_e, v) => (v ? showComposer() : hideComposer()));
 ipcMain.on('composer:close', hideComposer);
@@ -231,7 +243,7 @@ function openSettings(page = 'profile') {
   });
   settingsWin.setMenu(null);
   settingsWin.loadFile(path.join(__dirname, 'settings', 'index.html'), { hash: page });
-  settingsWin.on('closed', () => (settingsWin = null));
+  settingsWin.on('closed', () => { settingsWin = null; if (shortcutsPaused) { shortcutsPaused = false; registerShortcuts(false); } });
 }
 function openHistory() {
   if (historyWin) { historyWin.show(); historyWin.focus(); return; }
@@ -306,6 +318,36 @@ function buildMenu() {
   ]);
 }
 
+// ---- 단축키: 설정에서 바꿀 수 있음 ----
+let shortcutsPaused = false;                                               // 설정 창에서 새 단축키를 입력받는 동안은 잠시 꺼 둠(안 그러면 지금 단축키가 먼저 반응함)
+function effectiveShortcuts() {                                            // 저장된 값(올바른 것만) 위에 기본값을 깔아서 최종 단축키를 정함
+  const out = {}; for (const k of Object.keys(DEFAULT_SC)) { const v = settings && settings.shortcuts && settings.shortcuts[k]; const c = typeof v === 'string' ? Shortcuts.validate(v) : null; out[k] = c && c.ok ? c.accel : DEFAULT_SC[k]; }
+  return out;
+}
+function registerShortcuts(notify) {
+  globalShortcut.unregisterAll(); SC = effectiveShortcuts();
+  const fns = { overlay: toggleOverlay, composer: toggleComposer, quiet: toggleQuiet, history: toggleHistory }, failed = [];
+  for (const k of Object.keys(fns)) { let ok = false; try { ok = globalShortcut.register(SC[k], fns[k]); } catch {} if (!ok) failed.push(SC[k]); }
+  if (failed.length) { console.warn('단축키 등록 실패:', failed.join(', ')); if (notify && process.platform === 'win32' && tray) tray.displayBalloon({ title: 'DDuknip-friends', content: `다른 앱이 쓰는 단축키라 사용할 수 없어요: ${failed.join(', ')}\n설정의 '단축키'에서 바꾸거나 트레이 메뉴를 이용해 주세요.` }); }
+  if (process.platform === 'linux' && tray) tray.setContextMenu(buildMenu());
+  return failed;
+}
+ipcMain.handle('shortcuts:set', (_e, name, accel) => {
+  if (!(name in DEFAULT_SC)) return { ok: false, error: '알 수 없는 기능이에요.' };
+  const v = Shortcuts.validate(accel); if (!v.ok) return v;
+  const clash = Object.keys(SC).find((k) => k !== name && Shortcuts.same(SC[k], v.accel)); if (clash) return { ok: false, error: `이미 '${SC_LABEL[clash]}'에 쓰고 있어요.` };
+  globalShortcut.unregisterAll(); let can = false; try { can = globalShortcut.register(v.accel, () => {}); } catch {} globalShortcut.unregisterAll();     // 실제로 등록되는지 확인(다른 프로그램이 쓰는 키면 실패)
+  if (!can) { if (!shortcutsPaused) registerShortcuts(false); return { ok: false, error: '다른 프로그램이 이미 쓰고 있는 단축키예요.' }; }
+  settings.shortcuts = { ...(settings.shortcuts || {}), [name]: v.accel }; saveFile(); shortcutsPaused = false; registerShortcuts(false);
+  return { ok: true, accel: v.accel, shortcuts: SC };
+});
+ipcMain.handle('shortcuts:reset', (_e, name) => {
+  if (!(name in DEFAULT_SC)) return { ok: false };
+  const s = { ...(settings.shortcuts || {}) }; delete s[name]; settings.shortcuts = s; saveFile(); shortcutsPaused = false; const failed = registerShortcuts(false);
+  return { ok: true, shortcuts: SC, failed };
+});
+ipcMain.on('shortcuts:pause', (_e, on) => { shortcutsPaused = !!on; if (on) globalShortcut.unregisterAll(); else registerShortcuts(false); });
+
 app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock.hide();
   loadSettings();
@@ -328,9 +370,7 @@ app.whenReady().then(() => {
     if (a !== away) { away = a; if (win) win.webContents.send('presence', a ? 'away' : 'online'); }
   }, 3000);
 
-  const failed = [];
-  [['overlay', toggleOverlay], ['composer', toggleComposer], ['quiet', toggleQuiet], ['history', toggleHistory]].forEach(([k, fn]) => { if (!globalShortcut.register(SC[k], fn)) failed.push(SC[k]); });
-  if (failed.length) { console.warn('단축키 등록 실패:', failed.join(', ')); if (process.platform === 'win32') tray.displayBalloon({ title: 'DDuknip-friends', content: `다른 앱이 쓰는 단축키라 사용할 수 없어요: ${failed.join(', ')}\n트레이 메뉴를 이용해 주세요.` }); }
+  registerShortcuts(true);
   if (!settings.nickname || !settings.activeCode) openSettings();   // 처음 실행하면 설정부터
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());

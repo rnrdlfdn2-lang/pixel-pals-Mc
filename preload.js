@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('api', {
   setRegions: (rects) => ipcRenderer.send('hit:regions', rects),   // 클릭 가능한 영역을 본체에 전달
   // 오버레이 <-> 입력창
   setComposer: (v) => ipcRenderer.send('composer:set', !!v),
+  selfClick: () => ipcRenderer.send('overlay:selfclick'),                       // 내 캐릭터를 눌렀다고 알림(채팅창 '다른 곳 클릭' 닫기와 구분)
+  setShortcut: (name, accel) => ipcRenderer.invoke('shortcuts:set', name, accel),
+  resetShortcut: (name) => ipcRenderer.invoke('shortcuts:reset', name),
+  pauseShortcuts: (on) => ipcRenderer.send('shortcuts:pause', !!on),
   onComposerVisibility: (cb) => ipcRenderer.on('composer:visibility', (_e, v) => cb(v)),
   onChatSend: (cb) => ipcRenderer.on('chat:send', (_e, text) => cb(text)),
   chatResult: (ok) => ipcRenderer.send('chat:result', !!ok),

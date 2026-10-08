@@ -25,6 +25,33 @@ function itemIcon(name) {                   // 도트 아이템 미리보기 (�
   const c = el('canvas', { width: 64, height: 44 }), g = c.getContext('2d'); Sprites.drawItem(g, name, 32, 22, { s: 2 }); c.style.display = 'block'; return c;
 }
 
+// ---------- 단축키 ----------
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+const SC_ITEMS = [['composer', '채팅창 열기/닫기', '메시지 입력창을 켜고 꺼요.'], ['overlay', '픽셀 월드 숨기기/보이기', '캐릭터들이 돌아다니는 화면을 잠깐 숨겨요.'], ['quiet', '조용히 모드', '말풍선과 효과음을 잠시 꺼요.'], ['history', '최근 기록 창', '최근에 오간 채팅을 모아 봐요.']];
+let recording = null, scErr = {};
+const pretty = (a) => String(a || '').replace(/^Cmd\+|\+Cmd\+/g, (m) => m.replace('Cmd', IS_MAC ? '⌘' : 'Cmd')).replace(/Super/g, IS_MAC ? '⌘' : 'Win');
+function stopRecord() { if (recording === null) return; recording = null; removeEventListener('keydown', onRecordKey, true); api.pauseShortcuts(false); renderShortcuts(); }
+function startRecord(key) { if (recording) stopRecord(); recording = key; scErr = {}; api.pauseShortcuts(true); addEventListener('keydown', onRecordKey, true); renderShortcuts(); }     // 입력받는 동안은 지금 단축키를 잠시 꺼 둠
+async function onRecordKey(e) {
+  e.preventDefault(); e.stopPropagation();
+  if (e.key === 'Escape') return stopRecord();
+  const accel = Shortcuts.fromEvent(e, IS_MAC); if (!accel) return;                               // 수정키만 누른 상태면 계속 기다림
+  const key = recording, r = await api.setShortcut(key, accel);
+  if (r.ok) { st.shortcuts = r.shortcuts; scErr = {}; recording = null; removeEventListener('keydown', onRecordKey, true); renderShortcuts(); toast(`${pretty(r.accel)} 로 바꿨어요`); }
+  else { scErr = { [key]: r.error }; renderShortcuts(); }                                          // 안 되는 조합이면 이유를 보여주고 다시 입력받음
+}
+function renderShortcuts() {
+  const cur = st.shortcuts || {}, def = st.shortcutDefaults || {};
+  $('#sclist').replaceChildren(...SC_ITEMS.map(([k, name, desc]) => {
+    const rec = recording === k;
+    return el('div', { class: 'card row scrow' }, el('div', {}, el('div', { class: 'label', text: name }), el('div', { class: 'desc', text: desc }), scErr[k] ? el('div', { class: 'err', text: scErr[k] }) : ''),
+      el('div', { class: 'keys' }, el('kbd', { class: rec ? 'rec' : '', text: rec ? '키를 눌러 주세요…' : pretty(cur[k]) }),
+        rec ? el('button', { onclick: stopRecord, text: '취소' }) : el('button', { onclick: () => startRecord(k), text: '변경' }),
+        !rec && cur[k] !== def[k] ? el('button', { onclick: async () => { const r = await api.resetShortcut(k); st.shortcuts = r.shortcuts; scErr = {}; renderShortcuts(); toast('기본값으로 돌렸어요'); }, text: '기본값' }) : ''));
+  }));
+}
+addEventListener('blur', () => stopRecord());                                                     // 창을 벗어나면 입력받기를 멈추고 단축키를 다시 켬
+
 // ---------- 서버 요청 (짧게 연결 → 요청 → 응답 → 닫기) ----------
 const NET = '서버에 연결할 수 없어요. 서버 주소(config.json)를 확인해 주세요.';
 function rpc(op, data = {}) {
@@ -47,7 +74,8 @@ async function save(patch, syncProfile) {
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
 function showPage(p) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.page === p));
-  $('#profile').hidden = p !== 'profile'; $('#groups').hidden = p !== 'groups';
+  $('#profile').hidden = p !== 'profile'; $('#groups').hidden = p !== 'groups'; $('#shortcuts').hidden = p !== 'shortcuts';
+  if (p !== 'shortcuts') stopRecord(); else renderShortcuts();
   if (p === 'groups') refreshGroups();
 }
 addEventListener('focus', () => !$('#groups').hidden && refreshGroups());
@@ -62,6 +90,7 @@ function renderProfile() {
   $('#showoff').checked = st.showOffline !== false;
   $('#throwguard').checked = !!st.throwGuard;
   $('#soundon').checked = st.soundOn !== false;
+  $('#closeonblur').checked = st.closeOnBlur !== false;
   $('#autoupd').checked = st.autoUpdateCheck !== false;
   $('#size').value = Math.round((st.sizeScale || 1) * 100); $('#sizeval').textContent = $('#size').value + '%';
   $('#verdesc').textContent = `DDuknip-friends v${st.appVersion || ''} · 새 버전이 나오면 파일을 따로 받지 않고 여기서 바로 업데이트할 수 있어요.`;
@@ -73,6 +102,7 @@ function renderProfile() {
 }
 $('#showoff').addEventListener('change', () => save({ showOffline: $('#showoff').checked }).then(() => toast('저장했어요')));
 $('#throwguard').addEventListener('change', () => save({ throwGuard: $('#throwguard').checked }).then(() => toast('저장했어요')));
+$('#closeonblur').addEventListener('change', () => save({ closeOnBlur: $('#closeonblur').checked }).then(() => toast($('#closeonblur').checked ? '다른 곳을 누르면 채팅창이 닫혀요' : '채팅창은 직접 닫아야 해요')));
 $('#soundon').addEventListener('change', () => save({ soundOn: $('#soundon').checked }).then(() => toast($('#soundon').checked ? '효과음을 켰어요' : '효과음을 껐어요')));
 async function renderDisplays() {                         // 연결된 모니터 목록 (왼쪽부터 1, 2, 3...)
   let list = []; try { list = await api.listDisplays(); } catch {}
