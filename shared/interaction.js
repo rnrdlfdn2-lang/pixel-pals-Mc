@@ -100,22 +100,26 @@
     return 'hit';
   }
 
-  // 캐릭터가 겹쳐서 말풍선/이름표가 안 보일 때: 겹친 순간 서로 빨리 걸어서(평소의 speedMul 배) 벗어난다.
-  // 겹침 판단은 두 중심의 거리가 (폭 합/2)*비율 보다 작을 때. 들어갈 땐 enterRatio, 벗어났다고 볼 땐 exitRatio(더 멀리) 로 해서 경계에서 왔다갔다 하지 않게 한다.
-  const ESCAPE = { speedMul: 3, enterRatio: 0.7, exitRatio: 1.05, margin: 6, edge: 20 };
+  // 캐릭터가 겹쳐서 말풍선/이름표가 안 보일 때: 서로 '피하는' 게 아니라, 가던 방향 그대로 겹친 동안만 걷는 속도를 부드럽게 올려서(speedMul 배)
+  // 서로를 빠르게 지나간다. 밀어내거나 도망가지 않는다. 겹침 판단은 두 중심의 거리가 (폭 합/2)*비율 보다 작을 때(들어갈 땐 enterRatio, 끝날 땐 exitRatio 로 경계에서 떨리지 않게).
+  // 각자 자기 캐릭터만 움직이므로, 두 앱이 위치 신호 없이도 같은 결론을 내도록 '누가 빨라질지'는 id 로 정한다(id 가 작은 쪽).
+  const PASS = { speedMul: 3, enterRatio: 0.7, exitRatio: 1.05, easePerSec: 10 };      // easePerSec: 속도가 바뀌는 부드러움(클수록 빨리 바뀜, 10 = 약 0.1초에 따라잡음)
   const overlapping = (ax, aw, bx, bw, ratio) => Math.abs(ax - bx) < (aw + bw) / 2 * ratio;
-  // x,w: 내 캐릭터 위치/폭, others: [{id,x,w}] (움직이지 못하는 졸고 있는 캐릭터도 포함 -> 내가 비켜줌), W: 화면 너비, escaping: 지금 벗어나는 중인지
-  function escapePlan({ x, w, others, W, escaping, myId }) {
-    const ratio = escaping ? ESCAPE.exitRatio : ESCAPE.enterRatio;
-    const hit = (others || []).filter((o) => overlapping(x, w, o.x, o.w, ratio));
-    if (!hit.length) return { escape: false };
-    const near = hit.reduce((a, b) => (Math.abs(x - a.x) <= Math.abs(x - b.x) ? a : b));
-    let dir = Math.sign(x - near.x) || (String(myId) < String(near.id) ? -1 : 1);                 // 완전히 같은 자리면 id 순서로 서로 반대쪽으로 (둘이 같은 방향으로 가지 않게)
-    const room = dir > 0 ? W - ESCAPE.edge - x : x - ESCAPE.edge; if (room < 30) dir = -dir;       // 화면 끝에 막히면 반대쪽으로
-    const target = Math.min(W - ESCAPE.edge, Math.max(ESCAPE.edge, near.x + dir * ((w + near.w) / 2 * ESCAPE.exitRatio + ESCAPE.margin)));
-    return { escape: true, dir, target };
+  const idLess = (a, b) => { const x = Number(a), y = Number(b); return Number.isFinite(x) && Number.isFinite(y) ? x < y : String(a) < String(b); };
+  // x,w: 내 위치/폭, dir: 내가 가는 방향(+1/-1), walking: 내가 걷는 중인지, others: [{id,x,w,dir,walking,canWalk}] (졸고 있어도 포함, 오프라인은 제외), active: 이미 지나가는 중인지
+  // 돌려주는 값: {overlapping: 겹침, boost: 빨리 걸어야 함, startWalking: 서 있다가 걷기 시작해야 함}
+  function passPlan({ x, w, dir, walking, others, myId, active }) {
+    const ratio = active ? PASS.exitRatio : PASS.enterRatio, hit = (others || []).filter((o) => overlapping(x, w, o.x, o.w, ratio));
+    if (!hit.length) return { overlapping: false, boost: false, startWalking: false };
+    let boost = false, start = false;
+    for (const o of hit) {
+      const lower = idLess(myId, o.id);
+      if (walking) { if (o.walking && o.dir === dir) { if (lower) boost = true; } else boost = true; }   // 같은 방향으로 같이 걷는 중이면 id 작은 쪽만 빨라져서 추월 / 마주 오거나 상대가 서 있으면(졸고 있어도) 내가 빨리 지나감
+      else if (!o.walking && (!o.canWalk || lower)) start = true;                                         // 나도 상대도 서 있으면 id 작은 쪽이, 상대가 못 움직이면(졸음/기절) 내가 걷기 시작
+    }
+    return { overlapping: true, boost: boost || start, startWalking: start };
   }
 
-  root.Interaction = { KB, knockInfo, knockDistance, startKnock, stepKnock, ESCAPE, escapePlan, overlapping, isGuarded, registerHit, PULSE, THROW, HIT_MS, STUN, REMOTE, BUBBLE, pulseScale, remoteWalking, pushBubble, visibleBubbles, Cooldown, SelfClick, RightClick, throwEnabled };
+  root.Interaction = { KB, knockInfo, knockDistance, startKnock, stepKnock, PASS, passPlan, overlapping, idLess, isGuarded, registerHit, PULSE, THROW, HIT_MS, STUN, REMOTE, BUBBLE, pulseScale, remoteWalking, pushBubble, visibleBubbles, Cooldown, SelfClick, RightClick, throwEnabled };
   if (typeof module !== 'undefined') module.exports = root.Interaction;
 })(typeof window !== 'undefined' ? window : globalThis);

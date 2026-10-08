@@ -294,19 +294,20 @@ function frame(now) {
       if (Math.abs(k.v) > 500 && Math.random() < dt * 40) parts(p.x, GROUND() - 16, 1, ['#ffffff', '#cfd4e4'], { min: 10, max: 60, gy: 80, size: 4, dmin: 200, dmax: 350 });    // 지나간 자리에 먼지
     }
     if (p.id === myId) {                           // 내 캐릭터: 혼자 어슬렁어슬렁 (졸거나 맞는 중엔 멈춤)
-      if (frozen(p, now)) { p.walking = false; p.escaping = false; }
+      if (frozen(p, now)) { p.walking = false; p.passing = false; p.boost = 1; }
       else {
-        // 다른 캐릭터와 겹쳐서 말풍선/이름표가 가려질 땐, 겹친 순간 빠르게(3배) 걸어서 벗어남 (상대도 자기 화면에서 똑같이 비켜줌)
-        const others = []; for (const o of peers.values()) if (o.id !== myId && o.state !== 'offline') others.push({ id: o.id, x: o.x, w: o.bw || width(o.look) * SIZE });
-        const esc = IA.escapePlan({ x: p.x, w: p.bw || width(p.look) * SIZE, others, W, escaping: !!p.escaping, myId });
-        if (esc.escape) { p.escaping = true; p.wait = 0; p.tx = esc.target; }
-        else if (p.escaping) { p.escaping = false; p.tx = null; p.wait = 0.5 + Math.random(); }
+        // 다른 캐릭터와 겹쳐서 말풍선/이름표가 가려질 땐, 가던 방향 그대로 겹친 동안만 속도를 부드럽게 3배로 올려서 서로 빠르게 지나감 (밀어내거나 피하지 않음)
+        const others = []; for (const o of peers.values()) if (o.id !== myId && o.state !== 'offline') others.push({ id: o.id, x: o.x, w: o.bw || width(o.look) * SIZE, dir: o.dir, walking: !!o.walking, canWalk: o.state === 'online' && !frozen(o, now) && !o.kb });
+        const pl = IA.passPlan({ x: p.x, w: p.bw || width(p.look) * SIZE, dir: p.dir, walking: !!p.walking, others, myId, active: !!p.passing });
+        p.passing = pl.overlapping;
+        if (pl.startWalking && p.wait > 0) { p.wait = 0; p.tx = null; }                                              // 둘 다 서 있으면(또는 상대가 졸고 있으면) 기다리던 걸 멈추고 걷기 시작
+        const want = pl.boost ? IA.PASS.speedMul : 1; p.boost = (p.boost || 1) + (want - (p.boost || 1)) * Math.min(1, dt * IA.PASS.easePerSec);   // 순간 확 바뀌지 않고 부드럽게 빨라졌다 느려짐
         if (p.wait > 0) { p.wait -= dt; p.walking = false; }
         else {
-          if (p.tx == null) p.tx = 40 + Math.random() * (W - 80);
+          if (p.tx == null) { if (pl.startWalking) { const sd = Math.random() < 0.5 ? -1 : 1; let t = p.x + sd * (120 + Math.random() * 220); if (t < 40 || t > W - 40) t = p.x - sd * (120 + Math.random() * 220); p.tx = Math.min(W - 40, Math.max(40, t)); } else p.tx = 40 + Math.random() * (W - 80); }
           const d = p.tx - p.x;
-          if (Math.abs(d) < 2) { p.tx = null; p.wait = p.escaping ? 0 : 1 + Math.random() * 4; p.walking = false; }
-          else { p.dir = Math.sign(d); p.x += p.dir * SPEED * (p.escaping ? IA.ESCAPE.speedMul : 1) * dt; p.walking = true; }
+          if (Math.abs(d) < 2) { p.tx = null; p.wait = 1 + Math.random() * 4; p.walking = false; }
+          else { p.dir = Math.sign(d); p.x += p.dir * SPEED * p.boost * dt; p.walking = true; }
         }
       }
     } else {                                       // 친구 캐릭터: 받은 위치로 부드럽게
