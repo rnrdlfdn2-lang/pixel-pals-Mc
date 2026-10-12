@@ -159,7 +159,7 @@ function pollCursor() {
 }
 
 // ---- 입력창 (별도 창: 400x56, 기본 위치는 화면 위 가운데, 드래그하면 위치를 기억) ----
-const CW = 400, CH = 56;
+const CW = 480, CH = 56;
 let placing = false, moveTimer, pendingChat = null;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 let composerShown = false;                      // 입력창이 보이는지는 시스템(isVisible)에 묻지 않고 직접 기록한다 (미리 만든 숨은 창이 '보임'으로 나오는 환경이 있어서)
@@ -211,9 +211,9 @@ ipcMain.on('composer:set', (_e, v) => (v ? showComposer() : hideComposer()));
 ipcMain.on('composer:close', hideComposer);
 ipcMain.on('composer:typing', (_e, on) => { if (win) win.webContents.send('composer:typing', !!on); });
 // 입력창에서 보낸 메시지는 오버레이(서버 연결을 가진 쪽)로 전달하고, 보냈는지 결과를 돌려준다
-ipcMain.handle('chat:send', (_e, text) => new Promise((resolve) => {
+ipcMain.handle('chat:send', (_e, text, mega) => new Promise((resolve) => {
   if (pendingChat) pendingChat(false); pendingChat = resolve;
-  win.webContents.send('chat:send', String(text).slice(0, 200));
+  win.webContents.send('chat:send', String(text).slice(0, 200), !!mega);
   setTimeout(() => { if (pendingChat === resolve) { pendingChat = null; resolve(false); } }, 3000);
 }));
 ipcMain.on('chat:result', (_e, ok) => { if (pendingChat) { const r = pendingChat; pendingChat = null; r(!!ok); } });

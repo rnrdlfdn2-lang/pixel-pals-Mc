@@ -6,6 +6,10 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden}
 .grip i{display:block;width:12px;height:2px;border-radius:1px;background:#9a9ea8}
 input{flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid #d6d9e2;border-radius:8px;font:inherit;outline:none;-webkit-app-region:no-drag}
 input:focus{border-color:#0067c0}
+label.mega{flex:none;display:flex;align-items:center;height:36px;padding:0 9px;border:1px solid #d6d9e2;border-radius:8px;cursor:pointer;user-select:none;color:#5b5f6a;-webkit-app-region:no-drag;white-space:nowrap}
+label.mega input{display:none}
+label.mega:hover{background:#f3f4f8}
+label.mega.on{background:#fff3d6;border-color:#ff9f0a;color:#a85d00;font-weight:600}
 button{height:36px;padding:0 14px;border:0;border-radius:8px;background:#0067c0;color:#fff;font:inherit;cursor:pointer;-webkit-app-region:no-drag}
 button:hover{background:#0a5aa6}
 .bar.err input{border-color:#c42b1c}

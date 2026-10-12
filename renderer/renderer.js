@@ -78,6 +78,7 @@ function handle(m) {
     if (m.w !== undefined) { p.syncWalk = !!m.w; p.dir = m.d === -1 ? -1 : 1; }                // 보내는 쪽이 알려 준 상태를 그대로 사용
     else if (Math.abs(dx) > IA.REMOTE.minMovePx) { p.lastMoveAt = now; p.dir = dx > 0 ? 1 : -1; }   // (예전 버전) 위치 변화로 추측
   }
+  else if (m.t === 'chat' && m.bubble === 'mega') { const p = peers.get(m.id); if (p) p.typing = 0; pushMega(p ? p.name : '누군가', m.text, now); }           // 확성기: 캐릭터 위가 아니라 화면 가운데에 크게 (이전 앱에선 그냥 말풍선으로 보임)
   else if (m.t === 'chat') { const p = peers.get(m.id); if (p) { p.typing = 0; p.bubbles = IA.pushBubble(p.bubbles, m.text, bubbleStyle(m.bubble), now); } }       // 연속 채팅은 위로 쌓여서 조금 더 보임
   else if (m.t === 'throw') {
     const a = peers.get(m.from), b = peers.get(m.to); if (!a || !b) return;
@@ -106,6 +107,7 @@ const SND = {
   boom: () => { noise(0.6, 1400, 90, 0.5); tone(110, 35, 0.5, 'sine', 0.35); },                                   // 폭발: 쿵 + 우르릉
   shot: () => { noise(0.09, 3500, 700, 0.35, 'bandpass'); tone(800, 160, 0.1, 'square', 0.12); },                 // 총소리
   tick: () => tone(1200, 400, 0.06, 'square', 0.08),                                                              // 총알이 맞는 소리
+  mega: () => { tone(660, 880, 0.12, 'square', 0.09); setTimeout(() => tone(880, 1320, 0.2, 'square', 0.09), 130); },                         // 확성기 알림음 (띠링)
   zap: () => { tone(500, 1500, 0.28, 'triangle', 0.12); noise(0.2, 6000, 1500, 0.08, 'highpass'); },              // 마법이 터지는 소리
   whoosh: () => noise(0.5, 400, 3000, 0.1, 'bandpass'),
   bump: (power = 0.5) => { noise(0.14, 700, 100, 0.2 + 0.3 * power); tone(140, 50, 0.12, 'sine', 0.2 + 0.25 * power); },       // 벽에 쿵
@@ -242,6 +244,36 @@ function impact(s, t, now) {
   else if (s.sprite === 'poop') { onHit(s.to, now, 'splat', dir); parts(t.x, t.y, 12, ['#b47449', '#9e643c', '#915a35'], { min: 60, max: 200, up: 70, dmin: 350, dmax: 600 }); }
   else onHit(s.to, now, 'boop', dir);
 }
+// ---------- 확성기: 화면 가운데에 크게 뜨는 안내 (이름 : 내용) ----------
+const megas = [];
+function pushMega(name, text, now) {
+  megas.push({ name: String(name || '누군가').slice(0, 12), text: String(text).slice(0, 200), start: now, dur: Math.min(9000, Math.max(5000, 3500 + String(text).length * 90)) });
+  while (megas.length > 3) megas.shift(); if (!quiet) SND.mega();
+}
+function megaLayout(m) {                                                        // 줄바꿈 계산 (한 번만)
+  const maxW = Math.min(W * 0.72, 780); g.font = '700 22px system-ui, "Malgun Gothic", sans-serif';
+  const prefix = `📢 ${m.name} : `, full = prefix + m.text, lines = []; let cur = '';
+  for (const ch of full) { if (g.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch; }
+  lines.push(cur); m.lines = lines; m.prefix = prefix; m.w = Math.max(...lines.map((l) => g.measureText(l).width)) + 56; m.h = lines.length * 30 + 30;
+}
+function drawMegas(now) {
+  for (let i = megas.length - 1; i >= 0; i--) if (now - megas[i].start > megas[i].dur) megas.splice(i, 1);
+  if (quiet || !megas.length) return;
+  let y = H * 0.42;
+  for (let i = megas.length - 1; i >= 0; i--) {                                 // 최신이 가운데, 이전 것은 그 위로
+    const m = megas[i]; if (!m.lines) megaLayout(m); const el = now - m.start, left = m.dur - el;
+    const pop = el < 260 ? 1 + 2.2 * Math.pow(el / 260 - 1, 3) + 1.2 * Math.pow(el / 260 - 1, 2) : 1, sc = el < 260 ? Math.max(0.3, pop) : 1;     // 튀어나오듯 커졌다가 자리잡음
+    const a = Math.min(1, el / 120) * Math.min(1, left / 450), cx = W / 2, top = y - m.h / 2;
+    g.save(); g.globalAlpha = a * (i === megas.length - 1 ? 1 : 0.85); g.translate(cx, y); g.scale(sc, sc); g.translate(-cx, -y);
+    g.shadowColor = 'rgba(255,200,60,.55)'; g.shadowBlur = 22; g.fillStyle = 'rgba(28,26,58,.95)'; g.beginPath(); g.roundRect(cx - m.w / 2, top, m.w, m.h, 18); g.fill(); g.shadowBlur = 0;
+    g.strokeStyle = '#ffd23f'; g.lineWidth = 3; g.stroke(); g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 1; g.beginPath(); g.roundRect(cx - m.w / 2 + 5, top + 5, m.w - 10, m.h - 10, 14); g.stroke();
+    g.font = '700 22px system-ui, "Malgun Gothic", sans-serif'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    m.lines.forEach((l, k) => { const x = cx - m.w / 2 + 28, ty = top + 15 + 23 + k * 30;
+      if (k === 0 && l.startsWith(m.prefix)) { g.fillStyle = '#ffd23f'; g.fillText(m.prefix, x, ty); g.fillStyle = '#fff'; g.fillText(l.slice(m.prefix.length), x + g.measureText(m.prefix).width, ty); }
+      else if (k === 0) { g.fillStyle = '#ffd23f'; g.fillText(l, x, ty); } else { g.fillStyle = '#fff'; g.fillText(l, x, ty); } });
+    g.restore(); y -= m.h + 12;
+  }
+}
 function drawFx(f, now) {                                                          // false 를 돌려주면 끝난 효과
   const t = (now - f.start) / f.dur; if (t >= 1) return false; if (t < 0) return true; const q = (v) => Math.round(v / 4) * 4;                // 도트 느낌으로 4px 격자에 맞춤
   if (f.type === 'dot') { const el = (now - f.start) / 1000; g.globalAlpha = 1 - t; g.fillStyle = f.color; g.fillRect(q(f.x + f.vx * el), q(f.y + f.vy * el + 0.5 * f.gy * el * el), f.size, f.size); g.globalAlpha = 1; }
@@ -303,7 +335,7 @@ function setTyping(on) {
   if (on !== typingOn) { typingOn = on; send({ t: 'typing', on }); const me = peers.get(myId); if (me) me.typing = on ? performance.now() + 4000 : 0; }
 }
 window.api.onComposerTyping(setTyping);
-window.api.onChatSend((text) => { const ok = !!myId && ws && ws.readyState === 1; if (ok) { send({ t: 'chat', text, bubble: cfg.bubble }); setTyping(false); } window.api.chatResult(ok); });
+window.api.onChatSend((text, mega) => { const ok = !!myId && ws && ws.readyState === 1; if (ok) { send({ t: 'chat', text, bubble: mega ? 'mega' : cfg.bubble }); setTyping(false); } window.api.chatResult(ok); });
 window.api.onPresence((s) => { myState = s; send({ t: 'presence', state: s }); const me = peers.get(myId); if (me) me.state = s; });
 
 // ---------- 그리기 ----------
@@ -504,6 +536,7 @@ function frame(now) {
     }
   }
   for (let i = fx.length - 1; i >= 0; i--) if (!drawFx(fx[i], now)) fx.splice(i, 1);
+  drawMegas(now);
   if (status) {                                    // 연결 상태 안내: 연결 중 = 주황, 그 외 = 빨강
     g.fillStyle = status.startsWith('연결 중') ? DOT.away : DOT.offline; g.beginPath(); g.arc(14, H - 12, 4, 0, 7); g.fill();
     g.font = '12px system-ui, sans-serif'; g.textAlign = 'left'; g.fillStyle = '#2b2d42'; g.fillText(status, 24, H - 8);
