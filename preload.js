@@ -5,7 +5,8 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   copy: (t) => ipcRenderer.send('clipboard', t),
   pushGroups: (list) => ipcRenderer.send('groups:push', list),    // 설정 창이 알고 있는 그룹 목록(복원용 정보 포함)을 메인에 전달
-  refreshGroups: () => ipcRenderer.send('groups:refresh'),         // 그룹 목록을 지금 확인(필요하면 서버에 복원)
+  refreshGroups: () => ipcRenderer.send('groups:refresh'),
+  saveXp: (code, xp) => ipcRenderer.send('xp:save', code, xp),                    // 내 경험치 백업         // 그룹 목록을 지금 확인(필요하면 서버에 복원)
   forgetGroup: (code) => ipcRenderer.send('group:forget', code),  // 그룹을 나가거나 삭제됐을 때 복원 정보를 지움
   historyPin: (on) => ipcRenderer.send('history:pin', on),
   setRegions: (rects) => ipcRenderer.send('hit:regions', rects),   // 클릭 가능한 영역을 본체에 전달

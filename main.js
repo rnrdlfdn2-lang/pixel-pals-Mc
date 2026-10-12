@@ -29,7 +29,7 @@ function loadSettings() {
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
   let s = {}; try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
   settings = { uid: crypto.randomUUID(), nickname: '', character: 0, bubble: 'default', throwable: 'ball', activeCode: '', showOffline: true, quietMode: false,
-    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, closeOnBlur: true, shortcuts: {}, composerPlacement: null, groupSnapshots: [], ...s };
+    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, closeOnBlur: true, shortcuts: {}, composerPlacement: null, groupSnapshots: [], xp: {}, ...s };
   SC = effectiveShortcuts(); saveFile();
 }
 function saveFile() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); }
@@ -69,7 +69,7 @@ function rpc(op, data = {}) {
   });
 }
 // 무료 서버는 파일이 지워질 수 있어서, 그룹 정보를 내 PC에도 복사해 두었다가 서버가 비어 있으면 같은 초대코드로 되살린다
-const toSnapshot = (g) => ({ code: g.code, groupName: g.name, owner: (g.members.find((m) => m.owner) || g.members[0] || {}).uid, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look })) });
+const toSnapshot = (g) => ({ boss: g.boss && { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin }, code: g.code, groupName: g.name, owner: (g.members.find((m) => m.owner) || g.members[0] || {}).uid, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look })) });
 async function refreshGroups() {
   try {
     let list = await rpc('list');
@@ -91,6 +91,9 @@ ipcMain.on('groups:push', (_e, list) => {
   settings.groupSnapshots = list.filter((g) => Array.isArray(g.members)).map(toSnapshot); saveFile();
 });
 ipcMain.on('groups:refresh', () => refreshGroups());
+ipcMain.on('xp:save', (_e, code, xp) => {                                         // 내 경험치를 내 PC 에도 적어 둠 (서버 데이터가 사라져도 되살릴 수 있게)
+  if (typeof code !== 'string' || !Number.isFinite(xp)) return; settings.xp = settings.xp || {}; settings.xp[code.slice(0, 20)] = Math.max(0, Math.min(99999, Math.floor(xp))); saveFile();
+});
 ipcMain.on('group:forget', (_e, code) => {                                       // 그룹을 나갔거나 삭제/제외됨 -> 복원 정보도 지움 (되살아나지 않게)
   settings.groupSnapshots = settings.groupSnapshots.filter((s) => s.code !== code);
   cachedGroups = cachedGroups.filter((g) => g.code !== code);

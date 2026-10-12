@@ -40,6 +40,13 @@ function addOffline(o) {
 
 addEventListener('resize', () => { for (const p of peers.values()) p.x = Math.min(p.x, Math.max(20, W - 20)); });   // 모니터를 바꾸는 등 화면 폭이 줄어도 캐릭터가 화면 밖에 남지 않게
 
+// ---------- 보스 상태 ----------
+const Bz = Bosses;
+let boss = null, clockOff = 0, xps = {};                                    // boss: 지금 나와 있는 보스 / clockOff: 서버 시계와의 차이 / xps: 그룹원 uid -> 경험치
+const bossProxy = { isBoss: true, id: 'boss', state: 'online', x: 0, cy: 0, bw: 40, bh: 40 };   // 던지기 대상으로 쓰는 보스의 현재 위치/크기
+const serverNow = () => Date.now() + clockOff;
+const syncClock = (n) => { if (Number.isFinite(n)) clockOff = n - Date.now(); };
+
 // ---------- 네트워크 ----------
 let ws;
 const send = (m) => ws && ws.readyState === 1 && ws.send(JSON.stringify(m));
@@ -47,8 +54,8 @@ function connect() {
   if (!cfg.activeCode) { status = '트레이 아이콘 → 설정에서 그룹을 만들거나 참여해 주세요'; return; }
   status = '연결 중…';
   ws = new WebSocket(cfg.serverUrl);
-  ws.onopen = () => { status = ''; send({ t: 'join', uid: cfg.uid, code: cfg.activeCode }); };
-  ws.onclose = () => { myId = null; peers.clear(); if (!stop) { status = '연결 중…'; setTimeout(connect, 3000); } };
+  ws.onopen = () => { status = ''; send({ t: 'join', uid: cfg.uid, code: cfg.activeCode, xp: Number((cfg.xp || {})[cfg.activeCode]) || 0 }); };
+  ws.onclose = () => { myId = null; peers.clear(); boss = null; if (!stop) { status = '연결 중…'; setTimeout(connect, 3000); } };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
 function handle(m) {
@@ -57,8 +64,14 @@ function handle(m) {
     myId = m.id; addPeer({ id: m.id, uid: cfg.uid, name: cfg.nickname || '나', look: cfg.character, state: myState }, true);
     m.peers.forEach((p) => addPeer(p)); (m.offline || []).forEach(addOffline);
     if (myState === 'away') send({ t: 'presence', state: 'away' });
+    xps = { ...(m.xps || {}) }; const mine = Number((cfg.xp || {})[cfg.activeCode]) || 0; if (mine > (xps[cfg.uid] || 0)) xps[cfg.uid] = mine; window.api.saveXp(cfg.activeCode, xps[cfg.uid] || 0);
+    boss = null; if (m.boss) { syncClock(m.boss.now); setBoss(m.boss, false, now); }
   }
-  else if (m.t === 'peer') { peers.delete('off:' + m.uid); addPeer(m); }
+  else if (m.t === 'boss') { syncClock(m.boss.now); setBoss(m.boss, true, now); }
+  else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
+  else if (m.t === 'bossend') endBoss(m, now);
+  else if (m.t === 'bthrow') { const a = peers.get(m.from); if (a && boss && !boss.dead) { a.dir = Math.sign(bossProxy.x - a.x) || a.dir; a.throwAt = now; spawnShot(findThrowable(m.item), m.item, a, bossProxy, now); } }
+  else if (m.t === 'peer') { peers.delete('off:' + m.uid); addPeer(m); if (m.xp !== undefined) xps[m.uid] = m.xp; }
   else if (m.t === 'leave') { const p = peers.get(m.id); peers.delete(m.id); if (p && m.member !== false) addOffline(p); }   // 나가면 '오프라인'으로 누움
   else if (m.t === 'member') addOffline(m);
   else if (m.t === 'gone') peers.delete('off:' + m.uid);
@@ -118,7 +131,7 @@ const SND = {
   twang: () => { tone(420, 180, 0.12, 'triangle', 0.14); noise(0.06, 4000, 1500, 0.08, 'highpass'); },            // 활시위가 튕김
   punch: () => { noise(0.2, 1800, 80, 0.6); tone(150, 40, 0.3, 'sawtooth', 0.35); tone(900, 200, 0.12, 'square', 0.12); },   // 황금 장갑 한 방                                 // 철퍼덕
 };
-function onHit(p, now, snd = 'boop', dir = 0, power = 1) {  // 맞음: 모션 + 소리 + 기절 판정 (10초 안에 10번 -> 6초 기절, 기절 중/풀린 뒤 2초는 무적이라 안 맞음). dir: 공격이 날아온 방향
+function globalOnHit(p, now, snd = 'boop', dir = 0, power = 1) {  // 맞음: 모션 + 소리 + 기절 판정 (10초 안에 10번 -> 6초 기절, 기절 중/풀린 뒤 2초는 무적이라 안 맞음). dir: 공격이 날아온 방향
   const r = IA.registerHit(p, now, dir, power); if (r === 'blocked') return false;
   p.hitAt = now; (SND[snd] || boop)();
   if (r === 'stun') launch(p, now);               // 기절하면서 맞은 반대 방향으로 날아감 (세기 = 기절 직전 3초 안에 맞은 횟수)
@@ -140,7 +153,7 @@ function blockFx(t, now) {                      // 무적이라 막혔을 때: �
 
 // ---------- 던지기 아이템: 날아가기 / 총 / 효과 ----------
 const rad = (d) => d * Math.PI / 180, rnd = (a, b) => a + Math.random() * (b - a);
-const center = (p) => ({ x: p.x, y: GROUND() - (p.bh || height(p.look) * SIZE) / 2 });
+const center = (p) => (p.isBoss ? { x: p.x, y: p.cy } : { x: p.x, y: GROUND() - (p.bh || height(p.look) * SIZE) / 2 });
 function gunPivot(p) { return { x: p.x + (p.lx || 0) + (p.dir >= 0 ? 1 : -1) * (p.bw || width(p.look) * SIZE) * 0.22, y: GROUND() - (p.bh || height(p.look) * SIZE) * 0.40 }; }   // 총을 쥔 손 위치(몸 앞쪽)
 function gunAim(p, now) {                                                      // 총이 향하는 각도: 쏘는 중이면 대상 쪽, 평소엔 보는 방향
   if (now < p.aimUntil && p.aimTarget) { const pv = gunPivot(p), t = center(p.aimTarget); return PJ.aimAngle(pv.x, pv.y, t.x, t.y); }
@@ -181,13 +194,14 @@ function drawPunch(p, now) {
     for (let k = 3; k >= 1; k--) { const q = at(u - k * 0.12, rr); g.globalAlpha = 0.2; drawItem(g, 'glove', q.x, q.y, opt(u - k * 0.12)); }
     g.globalAlpha = 1;
   }
-  const q = at(u, rr); drawItem(g, 'glove', q.x, q.y, opt(u));
+  const q = at(u, rr); { const tr = Bz.auraTier(Bz.levelInfo(xps[p.uid] || 0).lv); if (tr >= 1) drawAura(q.x, q.y, 34 * sc, tr, now); } drawItem(g, 'glove', q.x, q.y, opt(u));
   return true;
 }
 function drawHeld(p, now, T) {
   const info = itemInfo(T.sprite), sc = p.sc || 1, s = (T.sprite === 'glove' ? 1.6 : 2) * sc, pv = gunPivot(p), aim = gunAim(p, now), since = now - p.recoilAt;
   const rec = T.kind === 'bow' ? 0 : since >= 0 && since < 140 ? -(1 - since / 140) * (T.kind === 'cannon' ? 9 : 5) * sc : 0;       // 쏘는 순간 반동
   const flip = Math.cos(aim) < 0, ang = flip ? Math.PI - aim : aim;
+  { const tr = Bz.auraTier(Bz.levelInfo(xps[p.uid] || 0).lv); if (tr >= 1) drawAura(pv.x + Math.cos(aim) * (info.w * 0.5) * s * 0.6, pv.y + Math.sin(aim) * (info.w * 0.5) * s * 0.6, Math.max(info.w, info.h) * s * 0.75, tr, now); }
   g.save(); g.translate(pv.x + Math.cos(aim) * rec, pv.y + Math.sin(aim) * rec); if (flip) g.scale(-1, 1); g.rotate(ang - rad(info.forward));
   drawItem(g, T.sprite, 0, 0, { s, ax: info.pivot[0], ay: info.pivot[1] }); g.restore();
   if (T.kind === 'bow') {                                                      // 시위: 평소엔 곧게, 쏠 땐 화살을 걸고 뒤로 당김
@@ -201,7 +215,7 @@ function drawHeld(p, now, T) {
 function spawnShot(T, item, a, b, now) {
   const kind = T.kind || 'arc', c = center(a), t = center(b);
   const s = { kind, sprite: T.sprite || null, emoji: T.sprite ? null : (T.emoji || item), to: b, start: now + PJ.RELEASE_MS, x0: c.x, y0: c.y, spin: (Math.random() < 0.5 ? -1 : 1) * rnd(4, 7), fired: false };
-  s.power = T.power || 1; s.T = T;
+  s.power = T.power || 1; s.T = T; s.fromMe = a.id === myId; s.tier = Bz.auraTier(Bz.levelInfo(xps[a.uid] || 0).lv);
   if (kind === 'gun' || kind === 'cannon') {
     a.heldItem = T.id; a.gunUntil = now + 2500; a.aimTarget = b; a.aimUntil = now + (kind === 'cannon' ? 700 : 480); a.recoilAt = now + PJ.RELEASE_MS;               // 총/대포를 대상 쪽으로 들고 쏨
     const mz = gunMuzzle(a, now, T.sprite); s.x0 = mz.x; s.y0 = mz.y;
@@ -228,6 +242,7 @@ function parts(x, y, n, colors, o = {}) {                                       
     fx.push({ type: 'dot', x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - (o.up || 0), gy: o.gy === undefined ? 420 : o.gy, size: o.size || (Math.random() < 0.5 ? 4 : 6), color: colors[(Math.random() * colors.length) | 0], start: performance.now(), dur: rnd(o.dmin || 300, o.dmax || 560) }); }
 }
 function impact(s, t, now) {
+  const onHit = s.to.isBoss ? (_p, nw, snd, _d, _pw) => bossStrike(s, snd, nw) : globalOnHit;                  // 보스가 맞았을 땐 사람 맞음(기절 등) 대신 보스 피해 처리
   const dir = Math.sign(t.x - s.x0) || 1;                                       // 공격이 날아온 방향 (+1: 왼쪽에서 오른쪽으로)
   if (IA.isGuarded(s.to, now)) { blockFx(t, now); return; }                     // 기절 중이거나 막 풀린 상대는 맞지 않음 (폭탄도 안 터짐)
   if (s.kind === 'bomb') { onHit(s.to, now, 'boom', dir); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 620, seed: Math.random() * 6 }); parts(t.x, t.y, 14, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae'], { min: 90, max: 300, up: 90, dmin: 450, dmax: 800 }); shakeUntil = now + 320; }
@@ -244,15 +259,144 @@ function impact(s, t, now) {
   else if (s.sprite === 'poop') { onHit(s.to, now, 'splat', dir); parts(t.x, t.y, 12, ['#b47449', '#9e643c', '#915a35'], { min: 60, max: 200, up: 70, dmin: 350, dmax: 600 }); }
   else onHit(s.to, now, 'boop', dir);
 }
+// ---------- 레벨 후광: Lv2/4/6/8/10 마다 무기 둘레에 빛무리 (단계가 높을수록 크고 진하고 화려함) ----------
+const AURA = [null, ['#8ecbff', '#d9efff'], ['#6bf0a8', '#e0ffee'], ['#ffd23f', '#fff3b0'], ['#ff7ad9', '#ffd0f2'], null];   // 5단계는 무지개
+const withAlpha = (c, a) => (c[0] === '#' ? `rgba(${parseInt(c.slice(1, 3), 16)},${parseInt(c.slice(3, 5), 16)},${parseInt(c.slice(5, 7), 16)},${a})` : c.replace('hsl(', 'hsla(').replace(')', `,${a})`));
+function drawAura(x, y, r, tier, now) {
+  const t = Math.min(5, tier), rr = r * (0.8 + 0.12 * t), pulse = 1 + 0.08 * Math.sin(now / (160 - t * 15) + x * 0.01);
+  const c1 = t === 5 ? `hsl(${(now / 6) % 360},100%,60%)` : AURA[t][0], c2 = t === 5 ? `hsl(${(now / 6 + 120) % 360},100%,75%)` : AURA[t][1];
+  g.save(); g.globalCompositeOperation = 'lighter';
+  const gr = g.createRadialGradient(x, y, 0, x, y, rr * pulse); gr.addColorStop(0, c2); gr.addColorStop(0.4, c1); gr.addColorStop(1, withAlpha(c1, 0));
+  g.globalAlpha = 0.22 + 0.1 * t; g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr * pulse, 0, 7); g.fill();
+  if (t >= 2) { g.globalAlpha = 0.35 + 0.08 * t; g.strokeStyle = c1; g.lineWidth = 1.5 + t * 0.4; g.beginPath(); g.arc(x, y, rr * 0.62 * pulse, 0, 7); g.stroke(); }
+  if (t >= 3) for (let i = 0; i < t + 1; i++) { const a = now / (700 - t * 60) + i * (7 / (t + 1)), d = rr * (0.55 + 0.2 * Math.sin(now / 300 + i)); g.globalAlpha = 0.9; g.fillStyle = i % 2 ? c2 : c1; const sz = 2 + (t >= 4 ? 1.5 : 0); g.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), sz, sz); }
+  if (t >= 4) { g.globalAlpha = 0.5; g.strokeStyle = c2; g.lineWidth = 2; for (let i = 0; i < 4; i++) { const a = now / 900 + i * Math.PI / 2, L = rr * (t === 5 ? 1.25 : 1.05); g.beginPath(); g.moveTo(x + Math.cos(a) * rr * 0.4, y + Math.sin(a) * rr * 0.4); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke(); } }
+  if (t === 5) { g.globalAlpha = 0.45; g.strokeStyle = `hsl(${(now / 6 + 240) % 360},100%,70%)`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, rr * 1.0 * pulse, 0, 7); g.stroke(); }
+  g.restore();
+}
+function shotPos(s, tc, t) {                                                          // 날아가는 중인 아이템의 현재 위치 (후광을 따라 붙이려고)
+  if (s.kind === 'gun') return PJ.linePos(s.x0, s.y0, tc.x, tc.y, t);
+  if (s.kind === 'cannon') return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 26 * SIZE);
+  if (s.kind === 'axe') return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 85 * SIZE);
+  if (s.kind === 'bow') return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 30 * SIZE);
+  if (s.kind === 'missile') return PJ.bezier(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, Math.pow(t, 1.25));
+  return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, (s.kind === 'bomb' ? 95 : 70) * SIZE);
+}
+
+// ---------- 보스 몬스터 ----------
+const bossCv = {};
+function bossCanvas(type, name) {                                                    // 도트 그림(글자 표 + 색 팔레트)을 작은 캔버스로 한 번만 만들어 둠
+  const k = type + name; if (bossCv[k]) return bossCv[k]; const S = BossSprites[type], rows = S[name], c = document.createElement('canvas'); c.width = rows[0].length; c.height = rows.length;
+  const x = c.getContext('2d'); rows.forEach((r, y) => { for (let i = 0; i < r.length; i++) { const col = S.palette[r[i]]; if (col) { x.fillStyle = col; x.fillRect(i, y, 1, 1); } } }); return (bossCv[k] = c);
+}
+const bossScale = () => (H < 700 ? 2 : 3);
+const banner = (text, color, now, dur) => pushMega('', text, now, { plain: true, color, dur });
+function setBoss(b, announce, now) {
+  const info = Bz.BOSSES[b.type]; if (!info || !window.BossSprites || !BossSprites[b.type]) return;
+  boss = { id: b.id, type: b.type, seed: b.seed, t0: b.t0, until: b.until, hp: b.hp, max: b.max || Bz.HP, spawnAt: now, hitAt: 0, lastPh: null, dead: false, pose: null };
+  bossProxy.guardUntil = 0;
+  if (announce) { const min = Math.max(1, Math.round((b.until - serverNow()) / 60000)); banner(`⚠️ ${info.emoji} ${info.name}가 나타났다! (${min}분 동안)`, '#ff8a8a', now, 6500); if (!quiet) SND.zap(); }
+}
+function applyXp(uid, name, xp, now) {
+  const before = Bz.levelInfo(xps[uid] || 0).lv, after = Bz.levelInfo(xp).lv; xps[uid] = xp;
+  if (after > before) { banner(`🎉 ${name} 님이 Lv.${after} 달성!`, '#8dffb0', now + 400, 6000); if (uid === cfg.uid && !quiet) { SND.mega(); } }
+}
+function endBoss(m, now) {
+  if (!boss || boss.id !== m.id) return;
+  const info = Bz.BOSSES[boss.type], P = bossProxy;
+  if (m.reason === 'dead') {
+    boss.dead = true; boss.deadAt = now; boss.deadSrv = serverNow(); boss.hp = 0; SND.boom();
+    fx.push({ type: 'screenflash', start: now, dur: 200 }); for (let i = 0; i < 4; i++) fx.push({ type: 'boom', x: P.x + rnd(-P.bw / 3, P.bw / 3), y: P.cy + rnd(-P.bh / 3, P.bh / 3), start: now + i * 140, dur: 700, seed: Math.random() * 6, sc: 1.6 });
+    parts(P.x, P.cy, 40, ['#ffd23f', '#ff9f1c', '#ffffff', '#cb473a'], { min: 120, max: 460, up: 160, dmin: 700, dmax: 1300 }); shakeUntil = now + 600;
+    const rw = Array.isArray(m.rewards) ? m.rewards : []; for (const r of rw) applyXp(r.uid, r.name, r.xp, now);
+    const mine = rw.find((r) => r.uid === cfg.uid); if (mine) { window.api.saveXp(cfg.activeCode, mine.xp); setTimeout(() => fx.push({ type: 'text', x: (peers.get(myId) || P).x, y: GROUND() - 90, text: `EXP +${mine.gain}`, start: performance.now(), dur: 1800, color: '#8dffb0', size: 20 }), 300); }
+    banner(`🏆 ${info.name} 처치! ` + (rw.length ? rw.slice(0, 3).map((r) => `${r.name} +${r.gain}`).join(' · ') : ''), '#ffd23f', now, 7000);
+  } else {
+    parts(P.x, P.cy, 16, ['#ffffff', '#cfd4e4'], { min: 40, max: 200, gy: -30, size: 8, dmin: 500, dmax: 900 });
+    if (m.reason === 'time') banner(`💨 ${info.name}가 도망갔어요…`, '#cfd4e4', now, 4500);
+    boss = null;
+  }
+}
+function bossStrike(s, snd, now) {                                                   // 내가 던진 것이 보스에 맞음 -> 규칙대로 피해를 서버에 알림 (남들 것은 서버가 알려 줌)
+  (SND[snd] || SND.boop)(); if (!boss || boss.dead) return; boss.hitAt = now;
+  if (!s.fromMe) return;
+  const r = Bz.damageOf(boss, s.T, boss.pose);
+  if (r.dmg > 0) send({ t: 'bhit', id: boss.id, dmg: r.dmg + Bz.dmgBonus(Bz.levelInfo(xps[cfg.uid] || 0).lv) });   // 레벨이 오를수록 무기 데미지 보너스
+  else { blockFx(center(bossProxy), now); fx.push({ type: 'text', x: bossProxy.x, y: bossProxy.cy - bossProxy.bh / 2 - 26, text: r.why, start: now, dur: 1600, color: '#ffd23f', size: 14 }); }
+}
+function updateBoss(now) {
+  if (!boss) return;
+  if (boss.dead) { if (now - boss.deadAt > 1500) { boss = null; return; } } else if (serverNow() > boss.until + 3000) { boss = null; return; }
+  const S = bossScale(), spr = BossSprites[boss.type], v = { W, H, bw: spr.idle[0].length * S, bh: spr.idle.length * S };
+  const po = Bz.pose(boss, boss.dead ? boss.deadSrv : serverNow(), v), rows = spr[po.sprite] || spr.idle, w0 = rows[0].length * S, h0 = rows.length * S;
+  boss.pose = po; boss.v = v; boss.w0 = w0; boss.h0 = h0;
+  const oy = po.anchor === 'bottom' ? (v.bh / 2 - h0 / 2) * po.sy : 0, sn = Math.sin(po.rot), cs = Math.cos(po.rot);   // 그림 가운데의 실제 화면 위치
+  const P = bossProxy; P.x = po.cx - oy * sn; P.cy = po.cy + oy * cs;
+  const sw = Math.abs(sn) > 0.7; P.bw = (sw ? h0 * po.sy : w0 * po.sx); P.bh = (sw ? w0 * po.sx : h0 * po.sy);
+  if (!boss.dead) bossFx(po, now);
+}
+function bossFx(po, now) {                                                           // 단계가 바뀔 때 / 계속 나오는 효과 (모든 화면에서 각자 같은 시각에 보임)
+  const P = bossProxy, ph = po.phase.split(':')[0], full = po.phase, t = boss.type, mouth = { x: P.x + (po.flip ? 1 : -1) * (t === 'liz' ? -1 : 1) * 0, y: P.cy };
+  if (full !== boss.lastPh) {
+    boss.lastPh = full;
+    if (ph === 'emerge') { fx.push({ type: 'ring', x: P.x, y: GROUND() - 4, start: now, dur: 420, color: '#b0824f', r: 70 }); parts(P.x, GROUND() - 6, 16, ['#6b4a2b', '#8a6038', '#b0824f'], { angle: -Math.PI / 2, spread: 1.0, min: 80, max: 260, gy: 500, dmin: 400, dmax: 800 }); if (!quiet) SND.thud(); }
+    else if (ph === 'sink') parts(P.x, GROUND() - 6, 10, ['#6b4a2b', '#8a6038'], { angle: -Math.PI / 2, spread: 1.0, min: 50, max: 160, gy: 500, dmin: 300, dmax: 600 });
+    else if (ph === 'land') { fx.push({ type: 'ring', x: P.x, y: GROUND() - 4, start: now, dur: 360, color: '#9bd36a', r: 56 }); parts(P.x, GROUND() - 4, 10, ['#cfe8a8', '#9bd36a', '#ffffff'], { angle: -Math.PI / 2, spread: 1.3, min: 40, max: 180, gy: 400, size: 4, dmin: 250, dmax: 450 }); shakeUntil = Math.max(shakeUntil, now + 90); }
+    else if (ph === 'windup') fx.push({ type: 'text', x: P.x, y: P.cy - P.bh / 2 - 22, text: '❗', start: now, dur: 900, color: '#ff6b4a', size: 22 });
+    else if (ph === 'dive') { fx.push({ type: 'ring', x: P.x, y: P.cy, start: now, dur: 300, color: '#c8a2ff', r: 50 }); if (!quiet) SND.whoosh(); }
+    else if (ph === 'rock') fx.push({ type: 'ring', x: P.x, y: P.cy, start: now, dur: 420, color: '#c9ced9', r: 70 });
+  }
+  const r = Math.random();
+  if (ph === 'breath' && r < 0.7) { const a = (po.rot || 0) + (po.flip ? 0 : Math.PI), dx = Math.cos(a), dy = Math.sin(a); parts(P.x + dx * P.bw * 0.45, P.cy + dy * P.bh * 0.2, 2, ['#ffd23f', '#ff9f1c', '#ff5a36'], { angle: Math.atan2(dy, dx), spread: 0.25, min: 120, max: 320, gy: -20, size: 6, dmin: 300, dmax: 600 }); }
+  else if (ph === 'charge' && r < 0.8) parts(P.x - (po.flip ? 1 : -1) * P.bw * 0.3, P.cy + P.bh * 0.2, 2, ['#ff5a36', '#ffd23f', '#6b6f7a'], { angle: po.flip ? Math.PI : 0, spread: 0.5, min: 30, max: 160, gy: -60, size: 6, dmin: 300, dmax: 600 });
+  else if (ph === 'orb' && r < 0.4) parts(P.x, P.cy + P.bh * 0.3, 1, ['#c8a2ff', '#7a6bff', '#ffffff'], { min: 10, max: 60, gy: 40, size: 4, dmin: 300, dmax: 600 });
+  else if (ph === 'dig' && r < 0.35) parts(P.x, GROUND() - 6, 1, ['#6b4a2b', '#8a6038', '#b0824f'], { angle: -Math.PI / 2, spread: 0.9, min: 40, max: 130, gy: 500, size: 4, dmin: 300, dmax: 500 });
+}
+function drawBoss(now) {
+  if (!boss || !boss.pose) return; const po = boss.pose, v = boss.v, P = bossProxy, spr = BossSprites[boss.type], rows = spr[po.sprite] || spr.idle, cv0 = bossCanvas(boss.type, po.sprite in spr ? po.sprite : 'idle');
+  const age = now - boss.spawnAt, pop = age < 450 ? 1 + 0.5 * Math.pow(1 - age / 450, 2) * (1 - age / 450) * 2 - 0.5 * (1 - age / 450) : 1, el = boss.dead ? now - boss.deadAt : 0;
+  const under = boss.type === 'mole' && !po.vulnerable && po.phase.startsWith('dig');
+  if (po.rot === 0 || Math.abs(po.rot) < 0.2) { const hgt = Math.max(0, GROUND() - (P.cy + P.bh / 2)); g.globalAlpha = Math.max(0.1, 0.32 - hgt / 700); g.fillStyle = '#000'; g.beginPath(); g.ellipse(P.x, GROUND() + 1, (P.bw / 2) * Math.max(0.5, 1 - hgt / 600), 5, 0, 0, 7); g.fill(); g.globalAlpha = 1; }   // 바닥 그림자 (높이 뜨면 작고 옅게)
+  g.save(); g.translate(po.cx, po.cy); g.rotate(po.rot); g.scale((po.flip ? -1 : 1) * po.sx * pop * (boss.dead ? 1 - el / 2600 : 1), po.sy * pop * (boss.dead ? 1 - el / 2600 : 1));
+  const w0 = boss.w0, h0 = boss.h0, y0 = po.anchor === 'bottom' ? v.bh / 2 - h0 : -h0 / 2;
+  g.globalAlpha = boss.dead ? Math.max(0, 1 - el / 1500) * (Math.floor(el / 90) % 2 ? 0.5 : 1) : under ? 0.35 : Math.min(1, age / 200);
+  g.drawImage(cv0, -w0 / 2, y0, w0, h0);
+  if (!boss.dead && now - boss.hitAt < 140) { g.globalAlpha = 0.65 * (1 - (now - boss.hitAt) / 140); g.globalCompositeOperation = 'lighter'; g.drawImage(cv0, -w0 / 2, y0, w0, h0); g.globalCompositeOperation = 'source-over'; }   // 맞으면 번쩍
+  g.restore(); g.globalAlpha = 1;
+  if (boss.dead) return;
+  // 이름 + 체력 막대 + 남은 시간 (보스 머리 쪽 위에 똑바로 서 있게 그림)
+  const info = Bz.BOSSES[boss.type], up = { x: Math.sin(po.rot), y: -Math.cos(po.rot) }, topD = (po.anchor === 'bottom' ? h0 * po.sy - v.bh * po.sy / 2 : h0 * po.sy / 2) + 18;
+  const lx = Math.min(W - 70, Math.max(70, po.cx + up.x * topD)), ly = Math.max(46, Math.min(H - 20, po.cy + up.y * topD)), bw = 112, hp = Math.max(0, boss.hp / boss.max);
+  g.textAlign = 'center'; g.font = '700 12px system-ui, "Malgun Gothic", sans-serif'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)';
+  const left = Math.max(0, Math.ceil((boss.until - serverNow()) / 1000)), tm = left >= 60 ? `${Math.floor(left / 60)}분 ${left % 60}초` : `${left}초`, title = `${info.emoji} ${info.name}  ·  ${tm}`;
+  g.strokeText(title, lx, ly - 16); g.fillStyle = '#fff'; g.fillText(title, lx, ly - 16);
+  g.fillStyle = 'rgba(20,20,30,.85)'; g.beginPath(); g.roundRect(lx - bw / 2 - 2, ly - 11, bw + 4, 14, 7); g.fill();
+  g.fillStyle = hp > 0.5 ? '#4cd964' : hp > 0.25 ? '#ffcc00' : '#ff453a'; g.beginPath(); g.roundRect(lx - bw / 2, ly - 9, Math.max(6, bw * hp), 10, 5); g.fill();
+  g.fillStyle = '#fff'; g.font = '700 10px system-ui, sans-serif'; g.fillText(`${boss.hp} / ${boss.max}`, lx, ly);
+  if (boss.type === 'pig') { g.fillStyle = '#9fe0ff'; g.font = '700 11px system-ui, "Malgun Gothic", sans-serif'; g.strokeText('❄️ 눈송이만 통해요', lx, ly + 14); g.fillText('❄️ 눈송이만 통해요', lx, ly + 14); }
+  if (boss.type === 'mole' && po.vulnerable === false) { g.fillStyle = '#e8c9a0'; g.font = '700 11px system-ui, "Malgun Gothic", sans-serif'; g.strokeText('땅속… 올라올 때 공격!', lx, ly + 14); g.fillText('땅속… 올라올 때 공격!', lx, ly + 14); }
+}
+function infoCard(p, top, now) {                                                     // 오른쪽 클릭: 레벨 / 경험치 카드
+  const li = Bz.levelInfo(xps[p.uid] || 0), left = p.infoUntil - now, a = Math.min(1, left / 300) * Math.min(1, (4000 - left) / 120 + 0.2), w = 150, h = 70;
+  let bottom = top - 32; if (p.bb) bottom -= (p.bb.bot - p.bb.top) + 8;
+  const x = Math.min(W - w - 4, Math.max(4, p.x - w / 2)), y = Math.max(4, bottom - h);
+  g.globalAlpha = a; g.fillStyle = 'rgba(30,32,48,.95)'; g.strokeStyle = '#ffd23f'; g.lineWidth = 2; g.beginPath(); g.roundRect(x, y, w, h, 10); g.fill(); g.stroke();
+  g.textAlign = 'left'; g.font = '800 15px system-ui, "Malgun Gothic", sans-serif'; g.fillStyle = '#ffd23f'; g.fillText(`Lv.${li.lv}`, x + 10, y + 21);
+  g.font = '600 11px system-ui, "Malgun Gothic", sans-serif'; g.fillStyle = '#cfd4e4'; g.textAlign = 'right'; g.fillText(li.max ? `EXP ${li.xp} · MAX` : `EXP ${li.xp} / ${li.next}`, x + w - 10, y + 21);
+  g.fillStyle = 'rgba(255,255,255,.15)'; g.beginPath(); g.roundRect(x + 10, y + 32, w - 20, 10, 5); g.fill();
+  g.fillStyle = '#4cd964'; g.beginPath(); g.roundRect(x + 10, y + 32, Math.max(6, (w - 20) * (li.max ? 1 : li.into / li.need)), 10, 5); g.fill();
+  g.textAlign = 'left'; g.fillStyle = '#ff9f9f'; g.font = '700 11px system-ui, "Malgun Gothic", sans-serif'; g.fillText(`⚔️ 공격력 +${Bz.dmgBonus(li.lv)}` + (Bz.auraTier(li.lv) ? `  ✨ 후광 ${Bz.auraTier(li.lv)}단계` : ''), x + 10, y + 61); g.globalAlpha = 1;
+}
+
 // ---------- 확성기: 화면 가운데에 크게 뜨는 안내 (이름 : 내용) ----------
 const megas = [];
-function pushMega(name, text, now) {
-  megas.push({ name: String(name || '누군가').slice(0, 12), text: String(text).slice(0, 200), start: now, dur: Math.min(9000, Math.max(5000, 3500 + String(text).length * 90)) });
+function pushMega(name, text, now, o = {}) {
+  megas.push({ name: String(name || '누군가').slice(0, 12), text: String(text).slice(0, 200), start: now, plain: !!o.plain, color: o.color || '#ffd23f', dur: o.dur || Math.min(9000, Math.max(5000, 3500 + String(text).length * 90)) });
   while (megas.length > 3) megas.shift(); if (!quiet) SND.mega();
 }
 function megaLayout(m) {                                                        // 줄바꿈 계산 (한 번만)
   const maxW = Math.min(W * 0.72, 780); g.font = '700 22px system-ui, "Malgun Gothic", sans-serif';
-  const prefix = `📢 ${m.name} : `, full = prefix + m.text, lines = []; let cur = '';
+  const prefix = m.plain ? '' : `📢 ${m.name} : `, full = prefix + m.text, lines = []; let cur = '';
   for (const ch of full) { if (g.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch; }
   lines.push(cur); m.lines = lines; m.prefix = prefix; m.w = Math.max(...lines.map((l) => g.measureText(l).width)) + 56; m.h = lines.length * 30 + 30;
 }
@@ -266,10 +410,11 @@ function drawMegas(now) {
     const a = Math.min(1, el / 120) * Math.min(1, left / 450), cx = W / 2, top = y - m.h / 2;
     g.save(); g.globalAlpha = a * (i === megas.length - 1 ? 1 : 0.85); g.translate(cx, y); g.scale(sc, sc); g.translate(-cx, -y);
     g.shadowColor = 'rgba(255,200,60,.55)'; g.shadowBlur = 22; g.fillStyle = 'rgba(28,26,58,.95)'; g.beginPath(); g.roundRect(cx - m.w / 2, top, m.w, m.h, 18); g.fill(); g.shadowBlur = 0;
-    g.strokeStyle = '#ffd23f'; g.lineWidth = 3; g.stroke(); g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 1; g.beginPath(); g.roundRect(cx - m.w / 2 + 5, top + 5, m.w - 10, m.h - 10, 14); g.stroke();
+    g.strokeStyle = m.plain ? m.color : '#ffd23f'; g.lineWidth = 3; g.stroke(); g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 1; g.beginPath(); g.roundRect(cx - m.w / 2 + 5, top + 5, m.w - 10, m.h - 10, 14); g.stroke();
     g.font = '700 22px system-ui, "Malgun Gothic", sans-serif'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     m.lines.forEach((l, k) => { const x = cx - m.w / 2 + 28, ty = top + 15 + 23 + k * 30;
-      if (k === 0 && l.startsWith(m.prefix)) { g.fillStyle = '#ffd23f'; g.fillText(m.prefix, x, ty); g.fillStyle = '#fff'; g.fillText(l.slice(m.prefix.length), x + g.measureText(m.prefix).width, ty); }
+      if (m.plain) { g.fillStyle = m.color; g.fillText(l, x, ty); }
+      else if (k === 0 && l.startsWith(m.prefix)) { g.fillStyle = '#ffd23f'; g.fillText(m.prefix, x, ty); g.fillStyle = '#fff'; g.fillText(l.slice(m.prefix.length), x + g.measureText(m.prefix).width, ty); }
       else if (k === 0) { g.fillStyle = '#ffd23f'; g.fillText(l, x, ty); } else { g.fillStyle = '#fff'; g.fillText(l, x, ty); } });
     g.restore(); y -= m.h + 12;
   }
@@ -285,7 +430,7 @@ function drawFx(f, now) {                                                       
     } g.globalAlpha = 1;
   } else if (f.type === 'screenflash') { g.globalAlpha = 0.55 * (1 - t); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
   } else if (f.type === 'ring') { g.globalAlpha = 1 - t; g.strokeStyle = f.color; g.lineWidth = 4; g.beginPath(); g.arc(f.x, f.y, 10 + (f.r || 60) * t, 0, 7); g.stroke(); g.globalAlpha = 1; }
-  else if (f.type === 'text') { g.globalAlpha = 1 - Math.max(0, (t - 0.6) / 0.4); g.font = '700 13px system-ui, sans-serif'; g.textAlign = 'center'; const y = f.y - t * 18; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.65)'; g.strokeText(f.text, f.x, y); g.fillStyle = f.color || '#fff'; g.fillText(f.text, f.x, y); g.globalAlpha = 1; }
+  else if (f.type === 'text') { g.globalAlpha = 1 - Math.max(0, (t - 0.6) / 0.4); g.font = `700 ${f.size || 13}px system-ui, sans-serif`; g.textAlign = 'center'; const y = f.y - t * 18; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.65)'; g.strokeText(f.text, f.x, y); g.fillStyle = f.color || '#fff'; g.fillText(f.text, f.x, y); g.globalAlpha = 1; }
   else if (f.type === 'burst') { g.globalAlpha = 1 - t; g.fillStyle = Math.floor(t * 12) % 2 ? '#fff6b0' : '#ffe27a'; const R = (22 + 80 * Math.sqrt(t)) * SIZE; for (let i = 0; i < 12; i++) { g.save(); g.translate(f.x, f.y); g.rotate(i * Math.PI / 6 + f.seed); g.fillRect(10, -3, (i % 2 ? R * 0.55 : R) - 10, 6); g.restore(); } g.globalAlpha = 1; }
   else if (f.type === 'flash') { g.globalAlpha = 1 - t; g.fillStyle = '#fff6b0'; const r = 6 + 10 * (1 - t); g.save(); g.translate(f.x, f.y); g.rotate(f.angle); g.fillRect(0, -3, r * 2, 6); g.fillRect(0, -r / 2, r, r); g.fillStyle = '#ff9f1c'; g.fillRect(4, -2, r * 1.4, 4); g.restore(); g.globalAlpha = 1; }
   return true;
@@ -303,28 +448,34 @@ const rightClick = new IA.RightClick(DOUBLE_MS);
 const selfStunned = (now) => { const me = peers.get(myId); return !!me && me.stunUntil > now; };
 const throwOn = (now) => IA.throwEnabled({ connected: !!myId, stunned: selfStunned(now), guard: !!cfg.throwGuard, armedUntil, now });
 
-const hitTest = (x, y, now) => {
+const hitTest = (x, y, now, button = 0) => {
+  if (boss && !boss.dead && myId && button === 0 && throwOn(now) && Math.abs(x - bossProxy.x) < bossProxy.bw / 2 + 4 && Math.abs(y - bossProxy.cy) < bossProxy.bh / 2 + 4) return bossProxy;      // 보스 클릭 = 공격
   for (const p of peers.values()) {
-    if (p.state === 'offline' || (p.id !== myId && !throwOn(now))) continue;                // 친구는 던질 수 있을 때만 클릭 대상 (아니면 클릭이 아래 창으로 통과)
+    if (p.state === 'offline') continue;                                                    // (친구도 오른쪽 클릭으로 레벨을 볼 수 있어야 해서 항상 클릭 대상)
     if (Math.abs(x - p.x) < (p.bw || width(p.look) * SIZE) / 2 + 4 && y > GROUND() - (p.bh || height(p.look) * SIZE) && y < GROUND()) return p;
   }
   return null;
 };
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
+function attack(p, now) {                                                                  // 친구 또는 보스에게 던지기/공격
+  const me = peers.get(myId);
+  if (myT.range !== undefined && me) {                                                      // 근접 무기(황금 장갑): 가까이 있을 때만 쓸 수 있음 (멀면 쿨타임을 쓰지 않고 안내만)
+    const gx = Math.max(0, Math.abs(me.x - p.x) - ((me.bw || 40) + (p.bw || 40)) / 2), gy = p.isBoss ? Math.max(0, (GROUND() - (me.bh || 50)) - (p.cy + p.bh / 2)) : 0;
+    if (Math.hypot(gx, gy) > myT.range * SIZE) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: p.isBoss && gy > 0 ? '너무 높이 있어요!' : '너무 멀어요! 가까이 가서 눌러요', start: now, dur: 1400, color: '#ffd23f' }); return; }
+  }
+  if (useCd.accept('throw', now)) { AC.resume(); armedUntil = 0; send(p.isBoss ? { t: 'bthrow', item: myThrow } : { t: 'throw', to: p.id, item: myThrow }); }
+  else if (me && myCd >= 1000) fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `쿨타임 ${((myCd - (now - useCd.last.get('throw'))) / 1000).toFixed(1)}초`, start: now, dur: 900, color: '#8ecbff' });
+}
 cv.addEventListener('mousedown', (e) => {
-  const now = performance.now(), p = hitTest(e.offsetX, e.offsetY, now); if (!p) return;
+  const now = performance.now(), p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) return;
+  if (p.isBoss) { attack(p, now); return; }
+  if (e.button === 2) p.infoUntil = now + 4000;                                              // 오른쪽 클릭: 레벨/경험치 카드
   if (p.id === myId) {
     if (e.button === 0) { window.api.selfClick(); selfClick.click(now); }                                                  // 한 번: 입력창 / 두 번: 크기 효과
     else if (e.button === 2 && cfg.throwGuard && rightClick.press(now)) armedUntil = now + IA.THROW.armMs;   // 오른쪽 두 번: 10초 동안 던지기 대기
-  } else if (e.button === 0) {
+  } else if (e.button === 0 && throwOn(now)) {
     if (IA.isGuarded(p, now)) { blockFx(center(p), now); return; }                          // 기절 중이거나 막 풀린(무적) 친구에게는 던질 수 없음
-    const me = peers.get(myId);
-    if (myT.range !== undefined && me) {                                                    // 근접 무기(황금 장갑): 가까이 있을 때만 쓸 수 있음 (멀면 쿨타임을 쓰지 않고 안내만)
-      const gap = Math.abs(me.x - p.x) - ((me.bw || 40) + (p.bw || 40)) / 2;
-      if (gap > myT.range * SIZE) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: '너무 멀어요! 가까이 가서 눌러요', start: now, dur: 1400, color: '#ffd23f' }); return; }
-    }
-    if (useCd.accept('throw', now)) { AC.resume(); armedUntil = 0; send({ t: 'throw', to: p.id, item: myThrow }); }
-    else if (me && myCd >= 1000) fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `쿨타임 ${((myCd - (now - useCd.last.get('throw'))) / 1000).toFixed(1)}초`, start: now, dur: 900, color: '#8ecbff' });
+    attack(p, now);
   }
 });
 
@@ -391,7 +542,7 @@ function motionOf(p, now) {                          // 지금 어떤 모션인�
 const visW = (p) => Math.min(190, Math.max(p.bw || 40, p.nameW || 0, p.bubW || 0));   // 겹침 판단 폭: 몸/이름표/말풍선 중 가장 넓은 것
 const frozen = (p, now) => p.state !== 'online' || p.stunUntil > now || now - p.hitAt < IA.HIT_MS || now - p.throwAt < 390;
 
-if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
+if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; }, get boss() { return boss; }, bossProxy, get xps() { return xps; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
 let last = performance.now(), lastPos = 0, sentWalk = false, lastRegions = 0, lastRegionKey = '', lastRegionSend = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -444,6 +595,7 @@ function frame(now) {
     }
     for (const p of peers.values()) { const t = Math.max(-120, Math.min(120, tg.get(p))); p.bOff = (p.bOff || 0) + (t - (p.bOff || 0)) * Math.min(1, dt * 10); if (Math.abs(p.bOff) < 0.3 && !t) p.bOff = 0; }
   }
+  updateBoss(now); drawBoss(now);
   for (const p of peers.values()) {
     p.lx = lungeX(p, now);
     const [state, t] = motionOf(p, now), b0 = bounds(p.look, state, t), base = { w: b0.w * SIZE, h: b0.h * SIZE };
@@ -460,10 +612,12 @@ function frame(now) {
     { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !(HT.kind === 'punch' && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top); p.bubW = 0;
+    p.top = top;
     if (!quiet) {
       const vb = IA.visibleBubbles(p.bubbles, now);
       if (vb.length) { const r = bubbles(vb, p.x, top - 32, p.bOff || 0); p.bubW = r.w; p.bb = { w: r.w, top: r.top, bot: top - 32 }; } else { p.bb = null; if (p.typing > now) typingDots(p.x, top - 32, now); }
     }
+    if (p.infoUntil > now) infoCard(p, top, now);
     if (state === 'doze') {                        // 졸 때: z z Z 가 위로 떠오름
       g.fillStyle = '#5b5f9a'; g.textAlign = 'left';
       for (let i = 0; i < 3; i++) { const k = ((now / 1200) + i / 3) % 1; g.globalAlpha = 1 - k; g.font = (10 + i * 3) + 'px system-ui'; g.fillText('z', p.x + 12 + k * 10, top + 6 - k * 22); }
@@ -478,9 +632,10 @@ function frame(now) {
   if (now - lastRegions > 60) {
     lastRegions = now; const rects = [];
     for (const p of peers.values()) {
-      if (p.state === 'offline' || (p.id !== myId && !throwOn(now))) continue;
+      if (p.state === 'offline') continue;
       const w = (p.bw || width(p.look) * SIZE) + 8, h = (p.bh || height(p.look) * SIZE) + 4; rects.push({ x: Math.round(p.x - w / 2), y: Math.round(GROUND() - h + 2), w: Math.round(w), h: Math.round(h) });
     }
+    if (boss && !boss.dead && myId && throwOn(now)) rects.push({ x: Math.round(bossProxy.x - bossProxy.bw / 2 - 4), y: Math.round(bossProxy.cy - bossProxy.bh / 2 - 4), w: Math.round(bossProxy.bw + 8), h: Math.round(bossProxy.bh + 8) });   // 보스도 클릭 가능 영역
     const key = JSON.stringify(rects); if (key !== lastRegionKey || now - lastRegionSend > 1000) { lastRegionKey = key; lastRegionSend = now; window.api.setRegions(rects); }   // 바뀌었거나 1초마다 다시 보냄(혹시 놓쳐도 복구)
   }
   if (cfg.throwGuard && armedUntil > now) {        // 던지기 대기 중: 친구 캐릭터에 점선 원 + 남은 시간
@@ -501,6 +656,7 @@ function frame(now) {
       else if (s.kind === 'axe' || s.kind === 'punch') SND.whoosh();
     }
     if (t >= 1) { impact(s, tc, now); shots.splice(i, 1); continue; }
+    if (s.tier >= 1 && s.kind !== 'punch') { const ap = shotPos(s, tc, t); if (ap) drawAura(ap.x, ap.y, (s.kind === 'gun' ? 20 : s.kind === 'cannon' ? 30 : 24) * SIZE, s.tier, now); }
     if (s.kind === 'gun') {                                                        // 총알: 일직선, 아주 빠름
       const p = PJ.linePos(s.x0, s.y0, tc.x, tc.y, t), ang = Math.atan2(tc.y - s.y0, tc.x - s.x0);
       g.save(); g.translate(p.x, p.y); g.rotate(ang); g.fillStyle = 'rgba(255,214,102,0.45)'; g.fillRect(-46, -1, 40, 2); g.fillStyle = '#ffd23f'; g.fillRect(-14, -2, 10, 4); g.fillStyle = '#fff8d0'; g.fillRect(-4, -3, 14, 6); g.restore();

@@ -76,3 +76,14 @@ input[type=checkbox]{width:22px;height:22px;flex:none;padding:0}
 @keyframes blink{50%{opacity:.55}}
 .scrow button{height:32px;padding:0 14px;border:1px solid #d6d9e2;border-radius:5px;background:#fff}
 .scrow button:hover{background:#f4f6fa}
+/* 보스 몬스터 (그룹 카드 안) */
+.bosspanel{margin-top:12px;padding:12px 14px;border:1px solid #e3e6ee;border-radius:8px;background:#fafbfd}
+.bosspanel .bt{font-weight:700;margin-bottom:6px}
+.bosspanel .lvl{font-size:13px;color:#2b2d42;margin-bottom:4px}
+.bosspanel .stat{font-size:13px;color:#5b5f6a;margin:4px 0 8px}
+.bosspanel .bar{height:8px;border-radius:4px;background:#e3e6ee;overflow:hidden;max-width:260px;margin:2px 0 6px}
+.bosspanel .bar i{display:block;height:100%;background:#34c759}
+.bosspanel .ctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:6px}
+.bosspanel .ctl label{display:flex;align-items:center;gap:6px;font-size:13px}
+.bosspanel select{height:30px;border:1px solid #d6d9e2;border-radius:5px;background:#fff;padding:0 6px}
+.bosspanel .note{font-size:12px;color:#8a8f9c;margin-top:8px}

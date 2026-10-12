@@ -18,11 +18,11 @@
     { id: 'bomb', name: '폭탄', sprite: 'bomb', kind: 'bomb' },
     { id: 'misl', name: '매직미사일', sprite: 'missile', kind: 'missile' },
     { id: 'gun', name: '저격총', sprite: 'gun', kind: 'gun', hold: true },
-    // 무기: hold = 들고 있는 모습이 보임 / cooldownMs = 이 아이템만의 쿨타임 / power = 한 번에 맞은 걸로 치는 횟수(10번이면 기절) / range = 근접 무기의 사거리(px, 두 캐릭터 몸 끝에서 끝까지)
-    { id: 'can', name: '대포', sprite: 'cannon', kind: 'cannon', hold: true, cooldownMs: 2000, power: 3 },
+    // 무기: dmg = 보스에게 주는 피해(없으면 1) / hold = 들고 있는 모습이 보임 / cooldownMs = 이 아이템만의 쿨타임 / power = 한 번에 맞은 걸로 치는 횟수(10번이면 기절) / range = 근접 무기의 사거리(px, 두 캐릭터 몸 끝에서 끝까지)
+    { id: 'can', name: '대포', sprite: 'cannon', kind: 'cannon', hold: true, cooldownMs: 2000, power: 3, dmg: 5 },
     { id: 'axe', name: '도끼', sprite: 'axe', kind: 'axe' },
     { id: 'bow', name: '활', sprite: 'bow', kind: 'bow', hold: true },
-    { id: 'glv', name: '황금 장갑', sprite: 'glove', kind: 'punch', hold: true, cooldownMs: 5000, power: 10, range: 70 },
+    { id: 'glv', name: '황금 장갑', sprite: 'glove', kind: 'punch', hold: true, cooldownMs: 5000, power: 10, range: 70, dmg: 10 },
   ];
   // 아이템 id 는 짧게(서버가 예전 버전이면 4글자쯤에서 잘라 버려서 긴 id 는 기본 공으로 바뀜). 예전에 저장된 긴 id 는 별명으로 연결
   const ALIAS = { cannon: 'can', glove: 'glv', cann: 'can', glov: 'glv' }, normThrow = (id) => ALIAS[id] || id;

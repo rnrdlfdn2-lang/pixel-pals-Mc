@@ -1,6 +1,6 @@
 {
   "name": "dduknip-friends",
-  "version": "0.9.1",
+  "version": "1.0.1",
   "description": "Friends-only pixel overlay chat",
   "author": "DDuknip-friends",
   "main": "main.js",

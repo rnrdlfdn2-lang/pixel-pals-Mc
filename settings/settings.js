@@ -129,7 +129,7 @@ async function refreshGroups() {
   try {
     list = await rpc('list');
     if (list.length && !list.some((g) => g.code === st.activeCode)) await setActive(list[0].code);   // 내 그룹이 아니면 첫 그룹으로 (목록이 비었을 땐 건드리지 않음: 서버 데이터가 사라진 경우 현재 그룹을 지키려고)
-    api.pushGroups(list.map((g) => ({ code: g.code, name: g.name, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look, owner: m.owner })) })));
+    api.pushGroups(list.map((g) => ({ code: g.code, name: g.name, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look, owner: m.owner })), boss: g.boss ? { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin } : undefined })));
     renderGroups();
   } catch (e) { $('#list').replaceChildren(el('p', { class: 'sub', text: e.message })); }
 }
@@ -138,6 +138,29 @@ function needNick() { if ([...st.nickname].length < 2) { showPage('profile'); th
 
 function renderGroups() {
   $('#list').replaceChildren(...(list.length ? list.map(groupCard) : [el('div', { class: 'card', text: '아직 그룹이 없어요. 아래에서 만들거나 초대 코드로 참여해 보세요.' })]));
+}
+const BOSS_EVERY = [5, 10, 20, 30, 60, 120, 180, 360, 720, 1440], BOSS_LASTS = [3, 5, 10, 20, 30, 60, 120];
+const fmtMin = (n) => (n >= 60 && n % 60 === 0 ? `${n / 60}시간` : `${n}분`);
+function bossSelect(values, cur, onChange) {
+  const vals = values.includes(cur) ? values : [...values, cur].sort((a, b) => a - b), sel = el('select', {}, vals.map((v) => el('option', { value: v, text: fmtMin(v) })));
+  sel.value = String(cur); sel.addEventListener('change', () => onChange(Number(sel.value))); return sel;
+}
+function bossPanel(g) {                                                              // 방장: 켜기/끄기, 출현 주기, 머무는 시간 / 모두: 내 레벨, 지금 상태
+  const b = g.boss || { on: false, everyMin: 60, lastsMin: 10 }, li = Bosses.levelInfo(g.xp || 0), box = el('div', { class: 'bosspanel' }, el('div', { class: 'bt', text: '👹 보스 몬스터' }));
+  box.append(el('div', { class: 'lvl', text: `내 레벨 Lv.${li.lv} · ${li.max ? `EXP ${li.xp} (MAX)` : `EXP ${li.xp} / ${li.next}`} · 공격력 +${Bosses.dmgBonus(li.lv)}` }), el('div', { class: 'bar' }, el('i', { style: `width:${li.max ? 100 : Math.round(100 * li.into / li.need)}%` })));
+  const act1 = b.active ? Bosses.BOSSES[b.active.type] : null;
+  box.append(el('div', { class: 'stat', text: act1 ? `지금 ${act1.emoji} ${act1.name} 출현 중 · 약 ${Math.max(1, Math.ceil(b.active.leftMs / 60000))}분 남음` : b.on ? `다음 출현: 약 ${Math.max(1, Math.ceil((b.nextInMs || 0) / 60000))}분 뒤 (앱을 켜 둔 그룹원이 있을 때만)` : '보스 출현이 꺼져 있어요' }));
+  if (g.owner) {
+    const save = (patch) => act(async () => { await rpc('bosscfg', { code: g.code, ...patch }); await refreshGroups(); }, '보스 설정을 바꿨어요 (그룹원 모두에게 적용)');
+    const cb = el('input', { type: 'checkbox' }); cb.checked = !!b.on; cb.addEventListener('change', () => save({ on: cb.checked }));
+    box.append(el('div', { class: 'ctl' }, el('label', {}, cb, el('span', { text: '보스 출현' })),
+      el('label', {}, el('span', { text: '출현 주기' }), bossSelect(BOSS_EVERY, b.everyMin, (v) => save({ everyMin: v })), el('span', { text: '마다' })),
+      el('label', {}, el('span', { text: '머무는 시간' }), bossSelect(BOSS_LASTS, b.lastsMin, (v) => save({ lastsMin: v })), el('span', { text: '동안' })),
+      el('button', { class: 'b', text: '지금 소환', onclick: () => act(async () => { await rpc('bossnow', { code: g.code }); await refreshGroups(); }, '보스를 불렀어요!') })));
+    if (!b.on || act1) box.lastChild.lastChild.disabled = true;
+  } else box.append(el('div', { class: 'stat', text: `방장 설정: ${b.on ? '켜짐' : '꺼짐'} · ${fmtMin(b.everyMin)}마다 출현 · ${fmtMin(b.lastsMin)} 동안 머묾` }));
+  box.append(el('div', { class: 'note', text: '보스를 공격해서 체력 100을 깎으면 처치! 경험치를 받아요. (내 캐릭터를 오른쪽 클릭하면 레벨이 보여요)' }));
+  return box;
 }
 function groupCard(g) {
   const isOpen = open.has(g.code), active = g.code === st.activeCode;
@@ -168,7 +191,7 @@ function groupCard(g) {
       el('button', { class: 'b', text: '이름 변경', onclick: () => { renaming = g.code; renderGroups(); } }),
       el('button', { class: 'b danger', text: '그룹 삭제', onclick: () => confirm(`'${g.name}' 그룹을 삭제할까요?\n되돌릴 수 없어요.`) && act(async () => { await rpc('delete', { code: g.code }); api.forgetGroup(g.code); await refreshGroups(); }, '그룹을 삭제했어요') }));
   }
-  card.append(el('div', { class: 'gbody' }, members, foot));
+  card.append(el('div', { class: 'gbody' }, members, bossPanel(g), foot));
   return card;
 }
 
