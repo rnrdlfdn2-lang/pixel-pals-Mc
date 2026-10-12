@@ -17,7 +17,12 @@
     { id: 'poop', name: '똥', sprite: 'poop', kind: 'arc' },
     { id: 'bomb', name: '폭탄', sprite: 'bomb', kind: 'bomb' },
     { id: 'misl', name: '매직미사일', sprite: 'missile', kind: 'missile' },
-    { id: 'gun', name: '저격총', sprite: 'gun', kind: 'gun' },
+    { id: 'gun', name: '저격총', sprite: 'gun', kind: 'gun', hold: true },
+    // 무기: hold = 들고 있는 모습이 보임 / cooldownMs = 이 아이템만의 쿨타임 / power = 한 번에 맞은 걸로 치는 횟수(10번이면 기절) / range = 근접 무기의 사거리(px, 두 캐릭터 몸 끝에서 끝까지)
+    { id: 'cannon', name: '대포', sprite: 'cannon', kind: 'cannon', hold: true, cooldownMs: 2000, power: 3 },
+    { id: 'axe', name: '도끼', sprite: 'axe', kind: 'axe' },
+    { id: 'bow', name: '활', sprite: 'bow', kind: 'bow', hold: true },
+    { id: 'glove', name: '황금 장갑', sprite: 'glove', kind: 'punch', hold: true, cooldownMs: 5000, power: 10, range: 70 },
   ];
   const findThrowable = (item) => THROWABLES.find((t) => t.id === item || t.emoji === item) || THROWABLES[0];
   const IT = root.ItemSprites || {}, itemCache = new Map();
@@ -33,7 +38,7 @@
     const cv = itemCanvas(name); if (!cv) return; const s = (o.s || 2) * (o.scale || 1), ax = o.ax !== undefined ? o.ax : cv.width / 2, ay = o.ay !== undefined ? o.ay : cv.height / 2;
     g.save(); g.imageSmoothingEnabled = false; g.translate(x, y); if (o.flip) g.scale(-1, 1); if (o.angle) g.rotate(o.angle); g.drawImage(cv, -ax * s, -ay * s, cv.width * s, cv.height * s); g.restore();
   }
-  const itemInfo = (name) => (IT[name] ? { w: IT[name].rows[0].length, h: IT[name].rows.length, forward: IT[name].forward, pivot: IT[name].pivot, muzzle: IT[name].muzzle, fuse: IT[name].fuse } : null);
+  const itemInfo = (name) => (IT[name] ? { w: IT[name].rows[0].length, h: IT[name].rows.length, forward: IT[name].forward, pivot: IT[name].pivot, muzzle: IT[name].muzzle, fuse: IT[name].fuse, tips: IT[name].tips, grip: IT[name].grip } : null);
 
   const defOf = (i) => { const d = CHARACTERS[i] || CHARACTERS[0]; if (!d.m) d.m = root.Motion.buildMotions(d); return d; };
   // 모션별 프레임 고르기. t: idle/walk/doze/offline/stun = 흐른 시간(ms), hit/throw = 시작 후 경과(ms)

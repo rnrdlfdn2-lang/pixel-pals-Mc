@@ -93,9 +93,9 @@
 
   // 맞음을 기록하고 기절 여부 판정. 무적이면 'blocked'(아무 일도 없음), 아니면 'hit', 10번째면 'stun'(기절 시작 + 무적 시작 + 넉백 정보 p.knock).
   // dir: 공격이 날아온 방향(+1 = 왼쪽에서 오른쪽으로 날아옴 -> 오른쪽으로 밀림, -1 = 반대). 모르면 0.
-  function registerHit(p, now, dir = 0) {
+  function registerHit(p, now, dir = 0, power = 1) {                 // power: 한 번에 맞은 걸로 치는 횟수 (대포 3, 황금 장갑 10 = 한 방에 기절 + 최대로 날아감)
     if (isGuarded(p, now)) return 'blocked';
-    p.hitLog = (p.hitLog || []).filter((h) => now - h.t < STUN.windowMs); p.hitLog.push({ t: now, dir: Math.sign(dir) || 0 }); p.hits = p.hitLog.map((h) => h.t);
+    p.hitLog = (p.hitLog || []).filter((h) => now - h.t < STUN.windowMs); for (let i = 0; i < Math.max(1, power | 0); i++) p.hitLog.push({ t: now, dir: Math.sign(dir) || 0 }); p.hits = p.hitLog.map((h) => h.t);
     if (p.hitLog.length >= STUN.hits) { p.knock = knockInfo(p.hitLog, now); p.stunUntil = now + STUN.durationMs; p.guardUntil = p.stunUntil + STUN.guardAfterMs; p.hitLog = []; p.hits = []; return 'stun'; }
     return 'hit';
   }
@@ -103,23 +103,43 @@
   // 캐릭터가 겹쳐서 말풍선/이름표가 안 보일 때: 서로 '피하는' 게 아니라, 가던 방향 그대로 겹친 동안만 걷는 속도를 부드럽게 올려서(speedMul 배)
   // 서로를 빠르게 지나간다. 밀어내거나 도망가지 않는다. 겹침 판단은 두 중심의 거리가 (폭 합/2)*비율 보다 작을 때(들어갈 땐 enterRatio, 끝날 땐 exitRatio 로 경계에서 떨리지 않게).
   // 각자 자기 캐릭터만 움직이므로, 두 앱이 위치 신호 없이도 같은 결론을 내도록 '누가 빨라질지'는 id 로 정한다(id 가 작은 쪽).
-  const PASS = { speedMul: 3, enterRatio: 0.7, exitRatio: 1.05, easePerSec: 10 };      // easePerSec: 속도가 바뀌는 부드러움(클수록 빨리 바뀜, 10 = 약 0.1초에 따라잡음)
+  // 규칙: 어느 쪽을 보고 걷든 겹치면 '각자' 빨라진다. 마주 오면 둘 다 4배. 같은 방향이면 둘 다 빨라지되(밀리는 느낌 없음) 서로 속도 차가 있어야 떨어지므로 id 작은 쪽 8배 / 큰 쪽 4배.
+  const PASS = { speedMul: 4, overtakeMul: 8, enterRatio: 0.75, exitRatio: 1.1, lagPad: 14, easePerSec: 10 };
   const overlapping = (ax, aw, bx, bw, ratio) => Math.abs(ax - bx) < (aw + bw) / 2 * ratio;
+  const clearDistance = (w, ow) => (w + ow) / 2 * PASS.exitRatio + PASS.lagPad;
   const idLess = (a, b) => { const x = Number(a), y = Number(b); return Number.isFinite(x) && Number.isFinite(y) ? x < y : String(a) < String(b); };
-  // x,w: 내 위치/폭, dir: 내가 가는 방향(+1/-1), walking: 내가 걷는 중인지, others: [{id,x,w,dir,walking,canWalk}] (졸고 있어도 포함, 오프라인은 제외), active: 이미 지나가는 중인지
-  // 돌려주는 값: {overlapping: 겹침, boost: 빨리 걸어야 함, startWalking: 서 있다가 걷기 시작해야 함}
+  // others: [{id,x,w,dir,walking,canWalk}] (w = 몸/이름표/말풍선 중 가장 넓은 폭). 돌려주는 값: {overlapping, mul(걷는 속도 배수), boost, startWalking, clear, near:{x,clear}}
   function passPlan({ x, w, dir, walking, others, myId, active }) {
     const ratio = active ? PASS.exitRatio : PASS.enterRatio, hit = (others || []).filter((o) => overlapping(x, w, o.x, o.w, ratio));
-    if (!hit.length) return { overlapping: false, boost: false, startWalking: false };
-    let boost = false, start = false;
+    if (!hit.length) return { overlapping: false, mul: 1, boost: false, startWalking: false, clear: 0, near: null };
+    let mul = 1, start = false, near = null, nd = Infinity;
     for (const o of hit) {
-      const lower = idLess(myId, o.id);
-      if (walking) { if (o.walking && o.dir === dir) { if (lower) boost = true; } else boost = true; }   // 같은 방향으로 같이 걷는 중이면 id 작은 쪽만 빨라져서 추월 / 마주 오거나 상대가 서 있으면(졸고 있어도) 내가 빨리 지나감
-      else if (!o.walking && (!o.canWalk || lower)) start = true;                                         // 나도 상대도 서 있으면 id 작은 쪽이, 상대가 못 움직이면(졸음/기절) 내가 걷기 시작
+      const lower = idLess(myId, o.id), dist = Math.abs(x - o.x), c = clearDistance(w, o.w);
+      if (dist < nd) { nd = dist; near = { x: o.x, clear: c }; }
+      if (walking) {
+        if (o.walking && o.dir === dir) mul = Math.max(mul, lower ? PASS.overtakeMul : PASS.speedMul);
+        else if (o.walking) mul = Math.max(mul, PASS.speedMul);
+        else mul = Math.max(mul, PASS.overtakeMul);
+      } else if (!o.walking && (!o.canWalk || lower)) { start = true; mul = Math.max(mul, PASS.overtakeMul); }
     }
-    return { overlapping: true, boost: boost || start, startWalking: start };
+    return { overlapping: true, mul, boost: mul > 1, startWalking: start, clear: near ? near.clear : 0, near };
+  }
+  // 겹쳤을 때 목적지: 상대 캐릭터 너머로 확실히 벗어나는 곳
+  function passTarget({ near, x, W, preferDir }) {
+    let sd = preferDir || (x >= near.x ? 1 : -1);
+    const dst = near.clear + 30; let t = near.x + sd * dst;
+    if (t < 40 || t > W - 40) { sd = -sd; t = near.x + sd * dst; }
+    return Math.min(W - 40, Math.max(40, t));
+  }
+  // 평소 어슬렁: 다른 캐릭터와 겹치는 곳은 피해서 목적지를 고름
+  function wanderTarget({ x, w, others, W, rand = Math.random }) {
+    for (let i = 0; i < 8; i++) {
+      const t = 40 + rand() * (W - 80);
+      if (!(others || []).some((o) => Math.abs(t - o.x) < (w + o.w) / 2 * 0.8)) return t;
+    }
+    return 40 + rand() * (W - 80);
   }
 
-  root.Interaction = { KB, knockInfo, knockDistance, startKnock, stepKnock, PASS, passPlan, overlapping, idLess, isGuarded, registerHit, PULSE, THROW, HIT_MS, STUN, REMOTE, BUBBLE, pulseScale, remoteWalking, pushBubble, visibleBubbles, Cooldown, SelfClick, RightClick, throwEnabled };
+  root.Interaction = { KB, knockInfo, knockDistance, startKnock, stepKnock, PASS, passPlan, passTarget, wanderTarget, clearDistance, overlapping, idLess, isGuarded, registerHit, PULSE, THROW, HIT_MS, STUN, REMOTE, BUBBLE, pulseScale, remoteWalking, pushBubble, visibleBubbles, Cooldown, SelfClick, RightClick, throwEnabled };
   if (typeof module !== 'undefined') module.exports = root.Interaction;
 })(typeof window !== 'undefined' ? window : globalThis);

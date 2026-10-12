@@ -22,7 +22,7 @@ function icon(look, s = 2) {                // 캐릭터 미리보기: 서 있�
 }
 
 function itemIcon(name) {                   // 도트 아이템 미리보기 (이모지처럼 한 칸에 들어가게)
-  const c = el('canvas', { width: 64, height: 44 }), g = c.getContext('2d'); Sprites.drawItem(g, name, 32, 22, { s: 2 }); c.style.display = 'block'; return c;
+  const c = el('canvas', { width: 64, height: 44 }), g = c.getContext('2d'); const inf = Sprites.itemInfo(name), sc = Math.max(1, Math.floor(Math.min(2, 60 / inf.w, 40 / inf.h) * 2) / 2); Sprites.drawItem(g, name, 32, 22, { s: sc }); c.style.display = 'block'; return c;
 }
 
 // ---------- 단축키 ----------
