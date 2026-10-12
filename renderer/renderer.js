@@ -139,7 +139,7 @@ function blockFx(t, now) {                      // 무적이라 막혔을 때: �
 // ---------- 던지기 아이템: 날아가기 / 총 / 효과 ----------
 const rad = (d) => d * Math.PI / 180, rnd = (a, b) => a + Math.random() * (b - a);
 const center = (p) => ({ x: p.x, y: GROUND() - (p.bh || height(p.look) * SIZE) / 2 });
-function gunPivot(p) { return { x: p.x + (p.dir >= 0 ? 1 : -1) * (p.bw || width(p.look) * SIZE) * 0.22, y: GROUND() - (p.bh || height(p.look) * SIZE) * 0.40 }; }   // 총을 쥔 손 위치(몸 앞쪽)
+function gunPivot(p) { return { x: p.x + (p.lx || 0) + (p.dir >= 0 ? 1 : -1) * (p.bw || width(p.look) * SIZE) * 0.22, y: GROUND() - (p.bh || height(p.look) * SIZE) * 0.40 }; }   // 총을 쥔 손 위치(몸 앞쪽)
 function gunAim(p, now) {                                                      // 총이 향하는 각도: 쏘는 중이면 대상 쪽, 평소엔 보는 방향
   if (now < p.aimUntil && p.aimTarget) { const pv = gunPivot(p), t = center(p.aimTarget); return PJ.aimAngle(pv.x, pv.y, t.x, t.y); }
   return p.dir >= 0 ? 0 : Math.PI;
@@ -157,6 +157,30 @@ function drawArrow(x, y, ang, sc) {                                           //
   g.fillStyle = '#262626'; g.beginPath(); g.moveTo(L / 2 + 2, 0); g.lineTo(L / 2 - 3.6 * px, -1.9 * px); g.lineTo(L / 2 - 3.6 * px, 1.9 * px); g.closePath(); g.fill();
   g.fillStyle = '#b8bfca'; g.beginPath(); g.moveTo(L / 2, 0); g.lineTo(L / 2 - 3 * px, -1.4 * px); g.lineTo(L / 2 - 3 * px, 1.4 * px); g.closePath(); g.fill();
   g.fillStyle = '#f4f4f4'; g.fillRect(-L / 2 - 1, -1.5 * px, 2 * px, px); g.fillRect(-L / 2 - 1, px / 2, 2 * px, px); g.restore();
+}
+// 황금 장갑 펀치: 0~0.18초 팔을 뒤로 젖힘 -> 0.18~0.27초 번개처럼 휘둘러 내리침(몸도 상대 쪽으로 돌진) -> 0.27~0.4초 유지 -> 0.62초까지 제자리로
+const PUNCH_MS = 620, PUNCH_HIT_MS = 250;
+function lungeX(p, now) {                                                          // 화면에서만 그려지는 몸의 쏠림(실제 위치는 그대로)
+  let off = 0;
+  if (p.punch) { const el = now - p.punch.start; if (el >= PUNCH_MS) p.punch = null; else { const d = p.punch.dist, u = (el - 180) / 90;
+    off = p.punch.dir * (el < 180 ? -10 * (el / 180) : el < 270 ? -10 + (d + 10) * u * u : el < 400 ? d : d * (1 - (el - 400) / 220)); } }
+  if (p.kick) { const el = now - p.kick.start; if (el >= 200) p.kick = null; else if (el >= 0) off += p.kick.dir * 14 * (1 - el / 200) * (p.sc || 1); }                    // 대포 반동으로 뒤로 밀림
+  return off;
+}
+function drawPunch(p, now) {
+  if (!p.punch) return false; const el = now - p.punch.start; if (el >= 400) return false;
+  const sg = p.punch.dir, sc = p.sc || 1, pv = gunPivot(p), R = 30 * sc, info = itemInfo('glove'), u = Math.min(1, Math.max(0, (el - 180) / 90));
+  const th = (k) => el < 180 ? -2.3 * (el / 180) * (el / 180) : -2.3 * Math.pow(1 - Math.min(1, Math.max(0, k)), 2);
+  const at = (k, rr) => ({ x: pv.x + sg * rr * Math.cos(th(k)), y: pv.y + rr * Math.sin(th(k)) });
+  const rr = el < 180 ? R : R * (1 + 0.3 * u), opt = (k) => ({ s: 2.6 * sc, flip: sg < 0, angle: th(k) * 0.6, ax: info.pivot[0], ay: info.pivot[1] });
+  if (el >= 180) {                                                                  // 휘두른 궤적(초승달) + 잔상
+    g.lineCap = 'round';
+    for (const [w, col] of [[10, 'rgba(255,226,122,.55)'], [4, 'rgba(255,255,255,.9)']]) { g.strokeStyle = col; g.lineWidth = w * sc; g.beginPath(); for (let i = 0; i <= 8; i++) { const q = at(u - 0.6 * (1 - i / 8), rr); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); } g.stroke(); }
+    for (let k = 3; k >= 1; k--) { const q = at(u - k * 0.12, rr); g.globalAlpha = 0.2; drawItem(g, 'glove', q.x, q.y, opt(u - k * 0.12)); }
+    g.globalAlpha = 1;
+  }
+  const q = at(u, rr); drawItem(g, 'glove', q.x, q.y, opt(u));
+  return true;
 }
 function drawHeld(p, now, T) {
   const info = itemInfo(T.sprite), sc = p.sc || 1, s = (T.id === 'glove' ? 1.6 : 2) * sc, pv = gunPivot(p), aim = gunAim(p, now), since = now - p.recoilAt;
@@ -179,6 +203,7 @@ function spawnShot(T, item, a, b, now) {
   if (kind === 'gun' || kind === 'cannon') {
     a.heldItem = T.id; a.gunUntil = now + 2500; a.aimTarget = b; a.aimUntil = now + (kind === 'cannon' ? 700 : 480); a.recoilAt = now + PJ.RELEASE_MS;               // 총/대포를 대상 쪽으로 들고 쏨
     const mz = gunMuzzle(a, now, T.sprite); s.x0 = mz.x; s.y0 = mz.y;
+    if (kind === 'cannon') a.kick = { start: now + PJ.RELEASE_MS, dir: -(Math.sign(t.x - c.x) || 1) };
     s.dur = kind === 'cannon' ? Math.min(520, Math.max(240, PJ.dist(mz.x, mz.y, t.x, t.y) / 1500 * 1000)) : PJ.bulletMs(mz.x, mz.y, t.x, t.y);
   } else if (kind === 'bow') {                                                       // 활: 0.45초 동안 시위를 당긴 뒤 화살이 날아감
     const pv = gunPivot(a), aim = PJ.aimAngle(pv.x, pv.y, t.x, t.y), sc = a.sc || 1;
@@ -186,9 +211,11 @@ function spawnShot(T, item, a, b, now) {
     a.throwAt = now + 450; s.start = now + 450; s.x0 = pv.x + Math.cos(aim) * 14 * sc; s.y0 = pv.y + Math.sin(aim) * 14 * sc; s.dur = Math.min(620, Math.max(300, PJ.dist(s.x0, s.y0, t.x, t.y) / 1300 * 1000));
   } else if (kind === 'axe') {
     s.dur = 620; s.sign = Math.sign(t.x - c.x) || 1;
-  } else if (kind === 'punch') {                                                     // 황금 장갑: 주먹이 번쩍 날아가 한 방
-    const pv = gunPivot(a), aim = PJ.aimAngle(pv.x, pv.y, t.x, t.y); a.heldItem = T.id; a.gunUntil = now + 1200; a.aimTarget = b; a.aimUntil = now + 450; a.recoilAt = now + 110;
-    s.start = now + 110; s.x0 = pv.x; s.y0 = pv.y; s.dur = 130; s.aim = aim; a.hideHeldUntil = s.start + s.dur;
+  } else if (kind === 'punch') {                                                     // 황금 장갑: 몸째 돌진해서 주먹을 크게 휘둘러 한 방
+    const dir = Math.sign(b.x - a.x) || 1, gap = Math.abs(b.x - a.x) - ((a.bw || 40) + (b.bw || 40)) / 2, sc = a.sc || 1;
+    a.dir = dir; a.heldItem = T.id; a.gunUntil = now + 1500; a.aimTarget = b; a.aimUntil = now + 600; a.throwAt = now + 140;
+    a.punch = { start: now, dir, dist: Math.max(0, Math.min(150, gap - 18 * sc)) };
+    s.start = now + PUNCH_HIT_MS; s.dur = 10; s.x0 = a.x; s.y0 = c.y;
   } else if (kind === 'missile') {
     s.dur = PJ.FLIGHT.missile; const amp = PJ.curveAmp(c.x, c.y, t.x, t.y) * rnd(0.85, 1.15), cc = PJ.curveControl(c.x, c.y, t.x, t.y, amp, rnd(-0.2, 0.2)); s.cx = cc.cx; s.cy = cc.cy;
   } else s.dur = PJ.FLIGHT[kind] || PJ.FLIGHT.arc;
@@ -203,7 +230,11 @@ function impact(s, t, now) {
   if (IA.isGuarded(s.to, now)) { blockFx(t, now); return; }                     // 기절 중이거나 막 풀린 상대는 맞지 않음 (폭탄도 안 터짐)
   if (s.kind === 'bomb') { onHit(s.to, now, 'boom', dir); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 620, seed: Math.random() * 6 }); parts(t.x, t.y, 14, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae'], { min: 90, max: 300, up: 90, dmin: 450, dmax: 800 }); shakeUntil = now + 320; }
   else if (s.kind === 'missile') { onHit(s.to, now, 'zap', dir); parts(t.x, t.y, 18, ['#9b8cff', '#d7bfff', '#ffffff', '#7a6bff'], { min: 80, max: 260, gy: 0, dmin: 350, dmax: 600 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 380, color: '#b9a9ff' }); }
-  else if (s.kind === 'cannon') { onHit(s.to, now, 'boom', dir, s.power); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 700, seed: Math.random() * 6, sc: 1.5 }); parts(t.x, t.y, 22, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae', '#cb473a'], { min: 120, max: 380, up: 110, dmin: 500, dmax: 900 }); shakeUntil = now + 480; }
+  else if (s.kind === 'cannon') {
+    onHit(s.to, now, 'boom', dir, s.power); fx.push({ type: 'screenflash', start: now, dur: 160 });
+    fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 800, seed: Math.random() * 6, sc: 2.3 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 520, color: '#fff3b0', r: 150 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now + 80, dur: 620, color: '#ff9f1c', r: 200 });
+    parts(t.x, t.y, 34, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae', '#cb473a'], { min: 150, max: 520, up: 140, dmin: 600, dmax: 1100 }); parts(t.x, t.y, 14, ['#6b6f7a', '#8d99ae', '#555a66'], { min: 20, max: 140, gy: -40, size: 10, dmin: 900, dmax: 1500 }); shakeUntil = now + 700;
+  }
   else if (s.kind === 'axe') { onHit(s.to, now, 'thud', dir, s.power); parts(t.x, t.y, 10, ['#b8bfca', '#8b8e96', '#c17a43', '#ffffff'], { min: 60, max: 220, up: 60, dmin: 300, dmax: 520 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 260, color: '#cfd4e4' }); }
   else if (s.kind === 'bow') { onHit(s.to, now, 'tick', dir, s.power); parts(t.x, t.y, 7, ['#d9a066', '#ffffff', '#b8bfca'], { min: 60, max: 200, gy: 200, dmin: 200, dmax: 380, size: 4 }); }
   else if (s.kind === 'punch') { onHit(s.to, now, 'punch', dir, s.power); fx.push({ type: 'burst', x: t.x, y: t.y, start: now, dur: 520, seed: Math.random() * 6 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 520, color: '#ffe27a' }); parts(t.x, t.y, 26, ['#ffe27a', '#e8b730', '#ffffff', '#ff5fa2', '#3fd0c9'], { min: 160, max: 460, gy: 120, dmin: 450, dmax: 800 }); shakeUntil = now + 520; }
@@ -212,7 +243,7 @@ function impact(s, t, now) {
   else onHit(s.to, now, 'boop', dir);
 }
 function drawFx(f, now) {                                                          // false 를 돌려주면 끝난 효과
-  const t = (now - f.start) / f.dur; if (t >= 1) return false; const q = (v) => Math.round(v / 4) * 4;                // 도트 느낌으로 4px 격자에 맞춤
+  const t = (now - f.start) / f.dur; if (t >= 1) return false; if (t < 0) return true; const q = (v) => Math.round(v / 4) * 4;                // 도트 느낌으로 4px 격자에 맞춤
   if (f.type === 'dot') { const el = (now - f.start) / 1000; g.globalAlpha = 1 - t; g.fillStyle = f.color; g.fillRect(q(f.x + f.vx * el), q(f.y + f.vy * el + 0.5 * f.gy * el * el), f.size, f.size); g.globalAlpha = 1; }
   else if (f.type === 'boom') {                                                    // 도트 폭발: 노랑->주황->빨강->연기, 안쪽부터 사라지는 별 모양
     const R = (16 + 74 * Math.sqrt(t)) * SIZE * (f.sc || 1), cell = 4; g.globalAlpha = 1 - Math.max(0, (t - 0.55) / 0.45);
@@ -220,7 +251,8 @@ function drawFx(f, now) {                                                       
       const d = Math.hypot(gx, gy), an = Math.atan2(gy, gx), rr = R * (0.8 + 0.25 * Math.sin(5 * an + f.seed)); if (d > rr) continue; if (t > 0.5 && d < rr * (t - 0.5) * 1.4) continue;
       const k = d / rr; g.fillStyle = k < 0.3 ? '#fff3b0' : k < 0.55 ? '#ffb703' : k < 0.8 ? '#fb5607' : '#5c3a2e'; g.fillRect(q(f.x + gx), q(f.y + gy), cell, cell);
     } g.globalAlpha = 1;
-  } else if (f.type === 'ring') { g.globalAlpha = 1 - t; g.strokeStyle = f.color; g.lineWidth = 4; g.beginPath(); g.arc(f.x, f.y, 10 + 60 * t, 0, 7); g.stroke(); g.globalAlpha = 1; }
+  } else if (f.type === 'screenflash') { g.globalAlpha = 0.55 * (1 - t); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
+  } else if (f.type === 'ring') { g.globalAlpha = 1 - t; g.strokeStyle = f.color; g.lineWidth = 4; g.beginPath(); g.arc(f.x, f.y, 10 + (f.r || 60) * t, 0, 7); g.stroke(); g.globalAlpha = 1; }
   else if (f.type === 'text') { g.globalAlpha = 1 - Math.max(0, (t - 0.6) / 0.4); g.font = '700 13px system-ui, sans-serif'; g.textAlign = 'center'; const y = f.y - t * 18; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.65)'; g.strokeText(f.text, f.x, y); g.fillStyle = f.color || '#fff'; g.fillText(f.text, f.x, y); g.globalAlpha = 1; }
   else if (f.type === 'burst') { g.globalAlpha = 1 - t; g.fillStyle = Math.floor(t * 12) % 2 ? '#fff6b0' : '#ffe27a'; const R = (22 + 80 * Math.sqrt(t)) * SIZE; for (let i = 0; i < 12; i++) { g.save(); g.translate(f.x, f.y); g.rotate(i * Math.PI / 6 + f.seed); g.fillRect(10, -3, (i % 2 ? R * 0.55 : R) - 10, 6); g.restore(); } g.globalAlpha = 1; }
   else if (f.type === 'flash') { g.globalAlpha = 1 - t; g.fillStyle = '#fff6b0'; const r = 6 + 10 * (1 - t); g.save(); g.translate(f.x, f.y); g.rotate(f.angle); g.fillRect(0, -3, r * 2, 6); g.fillRect(0, -r / 2, r, r); g.fillStyle = '#ff9f1c'; g.fillRect(4, -2, r * 1.4, 4); g.restore(); g.globalAlpha = 1; }
@@ -381,6 +413,7 @@ function frame(now) {
     for (const p of peers.values()) { const t = Math.max(-120, Math.min(120, tg.get(p))); p.bOff = (p.bOff || 0) + (t - (p.bOff || 0)) * Math.min(1, dt * 10); if (Math.abs(p.bOff) < 0.3 && !t) p.bOff = 0; }
   }
   for (const p of peers.values()) {
+    p.lx = lungeX(p, now);
     const [state, t] = motionOf(p, now), b0 = bounds(p.look, state, t), base = { w: b0.w * SIZE, h: b0.h * SIZE };
     let scale = 1;                                  // 크기 효과: 1배 -> 7배 -> 1배 (오프라인은 제외)
     if (p.state !== 'offline' && p.pulseAt) { const el = (now - p.pulseAt) / 1000; if (el > IA.PULSE.up + IA.PULSE.down) p.pulseAt = 0; else scale = IA.pulseScale(el); }
@@ -391,8 +424,8 @@ function frame(now) {
     if (p.kb) {                                    // 날아가는 중: 속도에 비례해 떠오르고 빙글빙글 돎
       const lift = Math.min(46, Math.abs(p.kb.v) * 0.025), bh = p.bh || 50, cy = GROUND() - lift - bh / 2;
       g.save(); g.translate(p.x, cy); g.rotate(p.kb.spin); draw(g, p.look, 0, bh / 2, { state, t, flip: p.dir < 0, scale: scale * SIZE }); g.restore(); top = GROUND() - lift - bh;
-    } else top = draw(g, p.look, p.x, GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
-    { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
+    } else top = draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
+    { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !(HT.id === 'glove' && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top); p.bubW = 0;
     if (!quiet) {
@@ -430,7 +463,8 @@ function frame(now) {
       s.fired = true;
       if (s.kind === 'gun') { SND.shot(); fx.push({ type: 'flash', x: s.x0, y: s.y0, start: now, dur: 110, angle: Math.atan2(tc.y - s.y0, tc.x - s.x0) }); }
       else if (s.kind === 'missile') SND.whoosh();
-      else if (s.kind === 'cannon') { SND.cannon(); const ang = Math.atan2(tc.y - s.y0, tc.x - s.x0); fx.push({ type: 'flash', x: s.x0, y: s.y0, start: now, dur: 180, angle: ang }); parts(s.x0, s.y0, 9, ['#ffffff', '#cfd4e4', '#8d99ae', '#ffd23f'], { angle: ang, spread: 0.5, min: 40, max: 200, gy: -20, size: 6, dmin: 400, dmax: 750 }); shakeUntil = Math.max(shakeUntil, now + 140); }
+      else if (s.kind === 'cannon') { SND.cannon(); const ang = Math.atan2(tc.y - s.y0, tc.x - s.x0); fx.push({ type: 'boom', x: s.x0 + Math.cos(ang) * 16, y: s.y0 + Math.sin(ang) * 16, start: now, dur: 380, seed: Math.random() * 6, sc: 0.6 }); fx.push({ type: 'flash', x: s.x0, y: s.y0, start: now, dur: 220, angle: ang });
+        parts(s.x0, s.y0, 16, ['#ffffff', '#cfd4e4', '#8d99ae', '#ffd23f', '#ff9f1c'], { angle: ang, spread: 0.45, min: 80, max: 380, gy: -30, size: 8, dmin: 500, dmax: 1000 }); fx.push({ type: 'ring', x: s.x0 + Math.cos(ang) * 22, y: s.y0 + Math.sin(ang) * 22, start: now, dur: 320, color: '#ffe9a8', r: 46 }); shakeUntil = Math.max(shakeUntil, now + 220); }
       else if (s.kind === 'bow') SND.twang();
       else if (s.kind === 'axe' || s.kind === 'punch') SND.whoosh();
     }
@@ -440,13 +474,16 @@ function frame(now) {
       g.save(); g.translate(p.x, p.y); g.rotate(ang); g.fillStyle = 'rgba(255,214,102,0.45)'; g.fillRect(-46, -1, 40, 2); g.fillStyle = '#ffd23f'; g.fillRect(-14, -2, 10, 4); g.fillStyle = '#fff8d0'; g.fillRect(-4, -3, 14, 6); g.restore();
     } else if (s.kind === 'cannon') {                                              // 대포알: 빠르게 살짝 포물선 + 연기 꼬리
       const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 26 * SIZE), q = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, Math.max(0, t - 0.03), 26 * SIZE), ang = Math.atan2(p.y - q.y, p.x - q.x);
-      g.save(); g.translate(p.x, p.y); g.rotate(ang); g.fillStyle = '#ff9f1c'; g.fillRect(-18, -3, 12, 6); g.fillStyle = '#ffd23f'; g.fillRect(-12, -2, 8, 4); g.fillStyle = '#262626'; g.fillRect(-6, -7, 20, 14); g.fillStyle = '#4a4a4e'; g.fillRect(-4, -5, 12, 10); g.fillStyle = '#d04a3b'; g.fillRect(8, -5, 4, 10); g.restore();
-      if (Math.random() < 0.7) parts(p.x - Math.cos(ang) * 14, p.y - Math.sin(ang) * 14, 1, ['#ffffff', '#cfd4e4', '#8d99ae'], { min: 5, max: 30, gy: -20, size: 6, dmin: 300, dmax: 520 });
+      g.save(); g.translate(p.x, p.y); g.rotate(ang);
+      for (let k = 0; k < 4; k++) { g.globalAlpha = 0.85 - k * 0.2; g.fillStyle = k < 2 ? '#ffd23f' : '#ff7b1c'; g.fillRect(-14 - k * 9, -5 + k, 10, 10 - 2 * k); } g.globalAlpha = 1;      // 불꽃 꼬리
+      g.fillStyle = '#262626'; g.beginPath(); g.arc(0, 0, 10 * SIZE, 0, 7); g.fill(); g.fillStyle = '#55585f'; g.beginPath(); g.arc(-1, -1, 7.5 * SIZE, 0, 7); g.fill(); g.fillStyle = '#a7acb8'; g.fillRect(-5 * SIZE, -6 * SIZE, 4 * SIZE, 3 * SIZE); g.restore();
+      parts(p.x - Math.cos(ang) * 16, p.y - Math.sin(ang) * 16, 1, ['#ffffff', '#cfd4e4', '#8d99ae'], { min: 5, max: 40, gy: -25, size: 8, dmin: 400, dmax: 750 });
     } else if (s.kind === 'axe') {                                                 // 도끼: 빙글빙글 4바퀴 돌며 포물선
       const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 85 * SIZE); drawItem(g, 'axe', p.x, p.y, { s: 2.4 * SIZE, angle: t * Math.PI * 8 * s.sign });
     } else if (s.kind === 'bow') {                                                 // 화살: 낮은 포물선, 날아가는 방향으로 기울어짐
       const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 30 * SIZE), q = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, Math.min(1, t + 0.02), 30 * SIZE); drawArrow(p.x, p.y, Math.atan2(q.y - p.y, q.x - p.x), SIZE);
-    } else if (s.kind === 'punch') {                                               // 주먹: 번쩍 날아가는 황금 장갑 + 잔상
+    } else if (s.kind === 'punch') {                                               // (몸과 주먹은 캐릭터에서 그림)
+    } else if (false) {                                               // 주먹: 번쩍 날아가는 황금 장갑 + 잔상
       const flip = Math.cos(s.aim) < 0, ang = flip ? Math.PI - s.aim : s.aim, e = 1 - Math.pow(1 - t, 2);
       for (let k = 3; k >= 0; k--) { const tt = Math.max(0, e - k * 0.12), px = s.x0 + (tc.x - s.x0) * tt, py = s.y0 + (tc.y - s.y0) * tt; g.globalAlpha = k ? 0.22 : 1; drawItem(g, 'glove', px, py, { s: 2.4 * SIZE, flip, angle: ang, ax: itemInfo('glove').pivot[0], ay: itemInfo('glove').pivot[1] }); }
       g.globalAlpha = 1;
