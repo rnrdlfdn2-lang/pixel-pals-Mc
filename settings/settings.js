@@ -98,7 +98,7 @@ function renderProfile() {
   $('#chars').replaceChildren(options(CHARACTERS, (_, i) => i === st.character, (_, i) => icon(i), (_, i) => save({ character: i }, true)));
   $('#bubbles').replaceChildren(options(BUBBLES, (b) => b.id === st.bubble,
     (b) => el('div', { class: 'pill', style: `background:${b.bg};border-color:${b.border};color:${b.text}`, text: '안녕' }), (b) => save({ bubble: b.id })));
-  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === st.throwable, (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => save({ throwable: t.id })));
+  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === Sprites.normThrow(st.throwable), (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => save({ throwable: t.id })));
 }
 $('#showoff').addEventListener('change', () => save({ showOffline: $('#showoff').checked }).then(() => toast('저장했어요')));
 $('#throwguard').addEventListener('change', () => save({ throwGuard: $('#throwguard').checked }).then(() => toast('저장했어요')));

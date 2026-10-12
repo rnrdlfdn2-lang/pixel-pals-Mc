@@ -12,7 +12,7 @@ const GROUND = () => H - 8;
 const SPEED = 24;                                    // 걷는 속도(px/초) - SIDEY처럼 느긋하게
 const DOUBLE_MS = cfg.doubleClickMs || 500;          // 더블클릭 인정 시간 (Windows 기본값)
 const bubbleStyle = (id) => BUBBLES.find((b) => b.id === id) || BUBBLES[0];
-const myT = THROWABLES.find((t) => t.id === cfg.throwable) || THROWABLES[0];
+const myT = findThrowable(cfg.throwable);
 const myThrow = myT.sprite ? myT.id : myT.emoji;            // 던질 때 서버로 보내는 값: 도트 아이템은 id, 이모지 아이템은 이모지
 const showOffline = cfg.showOffline !== false;
 let soundOn = cfg.soundOn !== false;                // 효과음 켜기/끄기 (설정 또는 트레이 메뉴)
@@ -30,7 +30,7 @@ let myId = null, myState = 'online', status = '', stop = false;
 function addPeer(o, me) {
   peers.set(o.id, { id: o.id, uid: o.uid, name: o.name, look: o.look, state: o.state || 'online', x: me ? Math.random() * W : W / 2, rx: 0.5, dir: 1,
     walking: false, wait: 0, tx: null, bubble: null, typing: 0, hitAt: 0, throwAt: 0, stunUntil: 0, pulseAt: 0, hits: [], bw: 0, bh: 0, lastMoveAt: -1e9, sc: 1,
-    equip: me ? cfg.throwable : null, gunUntil: 0, aimUntil: 0, aimTarget: null, recoilAt: 0, init: !!me });
+    equip: me ? myT.id : null, gunUntil: 0, aimUntil: 0, aimTarget: null, recoilAt: 0, init: !!me });
 }
 const hasUid = (uid) => [...peers.values()].some((p) => p.uid === uid);
 function addOffline(o) {
@@ -185,12 +185,12 @@ function drawPunch(p, now) {
   return true;
 }
 function drawHeld(p, now, T) {
-  const info = itemInfo(T.sprite), sc = p.sc || 1, s = (T.id === 'glove' ? 1.6 : 2) * sc, pv = gunPivot(p), aim = gunAim(p, now), since = now - p.recoilAt;
-  const rec = T.id === 'bow' ? 0 : since >= 0 && since < 140 ? -(1 - since / 140) * (T.id === 'cannon' ? 9 : 5) * sc : 0;       // 쏘는 순간 반동
+  const info = itemInfo(T.sprite), sc = p.sc || 1, s = (T.sprite === 'glove' ? 1.6 : 2) * sc, pv = gunPivot(p), aim = gunAim(p, now), since = now - p.recoilAt;
+  const rec = T.kind === 'bow' ? 0 : since >= 0 && since < 140 ? -(1 - since / 140) * (T.kind === 'cannon' ? 9 : 5) * sc : 0;       // 쏘는 순간 반동
   const flip = Math.cos(aim) < 0, ang = flip ? Math.PI - aim : aim;
   g.save(); g.translate(pv.x + Math.cos(aim) * rec, pv.y + Math.sin(aim) * rec); if (flip) g.scale(-1, 1); g.rotate(ang - rad(info.forward));
   drawItem(g, T.sprite, 0, 0, { s, ax: info.pivot[0], ay: info.pivot[1] }); g.restore();
-  if (T.id === 'bow') {                                                      // 시위: 평소엔 곧게, 쏠 땐 화살을 걸고 뒤로 당김
+  if (T.kind === 'bow') {                                                      // 시위: 평소엔 곧게, 쏠 땐 화살을 걸고 뒤로 당김
     const pt = (c) => PJ.gunPoint(pv.x, pv.y, info.pivot, c, s, 0, aim), A = pt(info.tips[0]), B = pt(info.tips[1]), ux = Math.cos(aim), uy = Math.sin(aim);
     const bd = p.bowDraw, pull = bd && now < bd.release ? Math.min(1, Math.max(0, (now - bd.start) / (bd.release - bd.start))) : 0;
     const mx = (A.x + B.x) / 2 - ux * pull * 16 * sc, my = (A.y + B.y) / 2 - uy * pull * 16 * sc;
@@ -432,7 +432,7 @@ function frame(now) {
     }
   }
   const me = peers.get(myId);
-  if (me && (now - lastPos > 200 || !!me.walking !== sentWalk)) { lastPos = now; sentWalk = !!me.walking; send({ t: 'pos', x: me.x / W, w: sentWalk ? 1 : 0, d: me.dir < 0 ? -1 : 1, e: cfg.throwable }); }   // 걷는 중 여부(w)와 방향(d)을 같이 알림
+  if (me && (now - lastPos > 200 || !!me.walking !== sentWalk)) { lastPos = now; sentWalk = !!me.walking; send({ t: 'pos', x: me.x / W, w: sentWalk ? 1 : 0, d: me.dir < 0 ? -1 : 1, e: myT.id }); }   // 걷는 중 여부(w)와 방향(d)을 같이 알림
 
   {                                                // 말풍선끼리 겹치면 그 동안만 서로 반대쪽으로 살짝 비켜 줌 (떨어지면 부드럽게 제자리로)
     const tg = new Map(), bl = []; for (const p of peers.values()) { tg.set(p, 0); if (p.bb && p.state !== 'offline' && !quiet) bl.push(p); }
@@ -457,7 +457,7 @@ function frame(now) {
       const lift = Math.min(46, Math.abs(p.kb.v) * 0.025), bh = p.bh || 50, cy = GROUND() - lift - bh / 2;
       g.save(); g.translate(p.x, cy); g.rotate(p.kb.spin); draw(g, p.look, 0, bh / 2, { state, t, flip: p.dir < 0, scale: scale * SIZE }); g.restore(); top = GROUND() - lift - bh;
     } else top = draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
-    { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !(HT.id === 'glove' && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
+    { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !(HT.kind === 'punch' && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top); p.bubW = 0;
     if (!quiet) {
