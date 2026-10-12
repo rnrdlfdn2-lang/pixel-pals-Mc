@@ -55,7 +55,7 @@ function connect() {
   status = '연결 중…';
   ws = new WebSocket(cfg.serverUrl);
   ws.onopen = () => { status = ''; send({ t: 'join', uid: cfg.uid, code: cfg.activeCode, xp: Number((cfg.xp || {})[cfg.activeCode]) || 0 }); };
-  ws.onclose = () => { myId = null; peers.clear(); boss = null; if (!stop) { status = '연결 중…'; setTimeout(connect, 3000); } };
+  ws.onclose = () => { myId = null; peers.clear(); boss = null; quiz = null; if (!stop) { status = '연결 중…'; setTimeout(connect, 3000); } };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
 function handle(m) {
@@ -70,6 +70,7 @@ function handle(m) {
   else if (m.t === 'boss') { syncClock(m.boss.now); setBoss(m.boss, true, now); }
   else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
   else if (m.t === 'bossend') endBoss(m, now);
+  else if (m.t === 'quiz' || m.t === 'qprog' || m.t === 'qstart' || m.t === 'qq' || m.t === 'qa' || m.t === 'qres' || m.t === 'qend') quizMsg(m, now);
   else if (m.t === 'bthrow') { const a = peers.get(m.from); if (a && boss && !boss.dead) { a.dir = Math.sign(bossProxy.x - a.x) || a.dir; a.throwAt = now; spawnShot(findThrowable(m.item), m.item, a, bossProxy, now); } }
   else if (m.t === 'peer') { peers.delete('off:' + m.uid); addPeer(m); if (m.xp !== undefined) xps[m.uid] = m.xp; }
   else if (m.t === 'leave') { const p = peers.get(m.id); peers.delete(m.id); if (p && m.member !== false) addOffline(p); }   // 나가면 '오프라인'으로 누움
@@ -133,6 +134,9 @@ const SND = {
   slash: () => { noise(0.18, 5000, 1200, 0.35, 'highpass'); tone(1500, 500, 0.12, 'sawtooth', 0.1); setTimeout(() => tone(2400, 1200, 0.08, 'triangle', 0.08), 60); },   // 스윽 챙
   burn: () => { noise(0.3, 1500, 200, 0.3); tone(220, 80, 0.2, 'sawtooth', 0.12); },
   gat: () => { noise(0.05, 3000, 900, 0.22, 'bandpass'); tone(500, 150, 0.05, 'square', 0.07); },
+  quiz: () => { tone(660, 990, 0.1, 'triangle', 0.1); setTimeout(() => tone(990, 1320, 0.14, 'triangle', 0.1), 110); },
+  ok: () => { tone(880, 1320, 0.12, 'square', 0.08); setTimeout(() => tone(1320, 1760, 0.18, 'square', 0.08), 120); },
+  no: () => tone(220, 110, 0.25, 'sawtooth', 0.09),
   punch: () => { noise(0.2, 1800, 80, 0.6); tone(150, 40, 0.3, 'sawtooth', 0.35); tone(900, 200, 0.12, 'square', 0.12); },   // 황금 장갑 한 방                                 // 철퍼덕
 };
 function globalOnHit(p, now, snd = 'boop', dir = 0, power = 1) {  // 맞음: 모션 + 소리 + 기절 판정 (10초 안에 10번 -> 6초 기절, 기절 중/풀린 뒤 2초는 무적이라 안 맞음). dir: 공격이 날아온 방향
@@ -272,7 +276,8 @@ function impact(s, t, now) {
   }
   else if (s.kind === 'axe') { onHit(s.to, now, 'thud', dir, s.power); parts(t.x, t.y, 10, ['#b8bfca', '#8b8e96', '#c17a43', '#ffffff'], { min: 60, max: 220, up: 60, dmin: 300, dmax: 520 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 260, color: '#cfd4e4' }); }
   else if (s.kind === 'bow') { onHit(s.to, now, 'tick', dir, s.power); parts(t.x, t.y, 7, ['#d9a066', '#ffffff', '#b8bfca'], { min: 60, max: 200, gy: 200, dmin: 200, dmax: 380, size: 4 }); }
-  else if (s.kind === 'flame') { onHit(s.to, now, 'burn', dir, s.power); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 650, seed: Math.random() * 6, sc: 1.0 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 420, color: '#ff9f1c', r: 80 }); parts(t.x, t.y, 22, ['#fff3b0', '#ffd23f', '#ff9f1c', '#ff5a36'], { min: 60, max: 260, up: 160, gy: -120, size: 6, dmin: 500, dmax: 900 }); }
+  else if (s.kind === 'flame') { onHit(s.to, now, 'burn', dir, s.power); if (!s.to.isBoss) startBurn(s, now); parts(t.x, t.y, 12, ['#fff3b0', '#ffd23f', '#ff7b1c'], { min: 40, max: 180, up: 120, gy: -140, size: 6, dmin: 400, dmax: 700 }); }
+  else if (false) { fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 650, seed: Math.random() * 6, sc: 1.0 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 420, color: '#ff9f1c', r: 80 }); parts(t.x, t.y, 22, ['#fff3b0', '#ffd23f', '#ff9f1c', '#ff5a36'], { min: 60, max: 260, up: 160, gy: -120, size: 6, dmin: 500, dmax: 900 }); }
   else if (s.kind === 'slash') { onHit(s.to, now, 'slash', dir, s.power); fx.push({ type: 'slashfx', x: t.x, y: t.y, start: now, dur: 420, dir }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 300, color: '#bfe6ff', r: 70 }); parts(t.x, t.y, 14, ['#ffffff', '#bfe6ff', '#8ecbff'], { angle: dir > 0 ? -0.6 : Math.PI + 0.6, spread: 0.9, min: 120, max: 380, gy: 200, size: 4, dmin: 250, dmax: 500 }); }
   else if (s.kind === 'punch') { onHit(s.to, now, 'punch', dir, s.power); fx.push({ type: 'burst', x: t.x, y: t.y, start: now, dur: 520, seed: Math.random() * 6 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 520, color: '#ffe27a' }); parts(t.x, t.y, 26, ['#ffe27a', '#e8b730', '#ffffff', '#ff5fa2', '#3fd0c9'], { min: 160, max: 460, gy: 120, dmin: 450, dmax: 800 }); shakeUntil = now + 520; }
   else if (s.kind === 'gun') { onHit(s.to, now, 'tick', dir); parts(t.x, t.y, 8, ['#fff6b0', '#ffd23f', '#ffffff'], { min: 80, max: 240, gy: 200, dmin: 160, dmax: 300, size: 4 }); }
@@ -340,10 +345,37 @@ function endBoss(m, now) {
 }
 function bossStrike(s, snd, now) {                                                   // 내가 던진 것이 보스에 맞음 -> 규칙대로 피해를 서버에 알림 (남들 것은 서버가 알려 줌)
   (SND[snd] || SND.boop)(); if (!boss || boss.dead) return; boss.hitAt = now;
+  if (s.kind === 'flame') { startBurn(s, now); return; }                              // 화염방사기: 한 방이 아니라 1초 동안 화상 피해가 나눠서 들어감
   if (!s.fromMe) return;
   const r = Bz.damageOf(boss, s.T, boss.pose);
-  if (r.dmg > 0) send({ t: 'bhit', id: boss.id, dmg: r.dmg + Bz.dmgBonus(Bz.levelInfo(xps[cfg.uid] || 0).lv) });   // 레벨이 오를수록 무기 데미지 보너스
+  if (r.dmg > 0) queueBhit(r.dmg + Bz.dmgBonus(Bz.levelInfo(xps[cfg.uid] || 0).lv));   // 레벨이 오를수록 무기 데미지 보너스
   else { blockFx(center(bossProxy), now); fx.push({ type: 'text', x: bossProxy.x, y: bossProxy.cy - bossProxy.bh / 2 - 26, text: r.why, start: now, dur: 1600, color: '#ffd23f', size: 14 }); }
+}
+const burns = []; let pendDmg = 0, lastBhit = 0;
+const queueBhit = (d) => { pendDmg += d; };                                           // 서버는 피해 신호를 0.12초에 한 번만 받으니, 모아서 한꺼번에 보냄
+const BURN_MS = 1000, BURN_TICKS = 4;
+function startBurn(s, now) {                                                          // 화상: 대상이 빨갛게 달아오르고, 1초 동안 0.25초마다 틱 피해
+  const to = s.to; let tot = 0;
+  if (to.isBoss) {
+    if (!boss || boss.dead) return; const r = Bz.damageOf(boss, s.T, boss.pose);
+    if (r.dmg <= 0) { if (s.fromMe) { blockFx(center(bossProxy), now); fx.push({ type: 'text', x: bossProxy.x, y: bossProxy.cy - bossProxy.bh / 2 - 26, text: r.why, start: now, dur: 1600, color: '#ffd23f', size: 14 }); } return; }
+    if (s.fromMe) tot = r.dmg + Bz.dmgBonus(Bz.levelInfo(xps[cfg.uid] || 0).lv);
+  }
+  to.burnUntil = now + BURN_MS; fx.push({ type: 'burnfx', to, start: now, dur: BURN_MS }); burns.push({ to, t0: now, i: 0, tot });
+}
+function pumpBurns(now) {
+  for (let k = burns.length - 1; k >= 0; k--) {
+    const b = burns[k]; if (b.to.isBoss ? (!boss || boss.dead) : !peers.has(b.to.id)) { burns.splice(k, 1); continue; }
+    while (b.i < BURN_TICKS && now >= b.t0 + b.i * (BURN_MS / BURN_TICKS)) {
+      const c = center(b.to); parts(c.x, c.y, 5, ['#ffd23f', '#ff9f1c', '#ff5a36'], { min: 30, max: 120, up: 100, gy: -120, size: 6, dmin: 300, dmax: 550 });
+      if (b.to.isBoss) boss.hitAt = now;
+      const d = Math.floor((b.i + 1) * b.tot / BURN_TICKS) - Math.floor(b.i * b.tot / BURN_TICKS); if (d > 0) queueBhit(d);
+      b.i++;
+    }
+    if (b.i >= BURN_TICKS) burns.splice(k, 1);
+  }
+  if (!boss || boss.dead) pendDmg = 0;
+  else if (pendDmg > 0 && now - lastBhit >= 135) { send({ t: 'bhit', id: boss.id, dmg: Math.min(20, pendDmg) }); pendDmg = Math.max(0, pendDmg - 20); lastBhit = now; }
 }
 function updateBoss(now) {
   if (!boss) return;
@@ -382,6 +414,7 @@ function drawBoss(now) {
   const w0 = boss.w0, h0 = boss.h0, y0 = po.anchor === 'bottom' ? v.bh / 2 - h0 : -h0 / 2;
   g.globalAlpha = boss.dead ? Math.max(0, 1 - el / 1500) * (Math.floor(el / 90) % 2 ? 0.5 : 1) : under ? 0.35 : Math.min(1, age / 200);
   g.drawImage(cv0, -w0 / 2, y0, w0, h0);
+  if (!boss.dead && bossProxy.burnUntil > now) { g.filter = 'sepia(1) saturate(8) hue-rotate(-38deg)'; g.globalAlpha = 0.45 + 0.15 * Math.sin(now / 80); g.drawImage(cv0, -w0 / 2, y0, w0, h0); g.filter = 'none'; }
   if (!boss.dead && now - boss.hitAt < 140) { g.globalAlpha = 0.65 * (1 - (now - boss.hitAt) / 140); g.globalCompositeOperation = 'lighter'; g.drawImage(cv0, -w0 / 2, y0, w0, h0); g.globalCompositeOperation = 'source-over'; }   // 맞으면 번쩍
   g.restore(); g.globalAlpha = 1;
   if (boss.dead) return;
@@ -409,6 +442,103 @@ function infoCard(p, top, now) {                                                
   g.textAlign = 'left'; g.fillStyle = '#ff9f9f'; g.font = '700 11px system-ui, "Malgun Gothic", sans-serif'; g.fillText(`⚔️ 공격력 +${Bz.dmgBonus(li.lv)}` + (Bz.auraTier(li.lv) ? `  ✨ 후광 ${Bz.auraTier(li.lv)}단계` : ''), x + 10, y + 61); g.globalAlpha = 1;
 }
 
+// ---------- 랜덤퀴즈 (서버가 문제를 내고 채점함. 화면에는 카드가 뜨고 마우스로 고름) ----------
+let quiz = null; let quizRects = [], quizBounds = null;
+const QFONT = 'system-ui, "Malgun Gothic", sans-serif', CIRC = ['①', '②', '③', '④'];
+function wrapLines(text, maxW, font) { g.font = font; const out = []; let cur = ''; for (const ch of String(text)) { if (g.measureText(cur + ch).width > maxW && cur) { out.push(cur); cur = ch.trim() ? ch : ''; } else cur += ch; } if (cur) out.push(cur); return out; }
+function quizBanner(text, color, now) { banner(text, color || '#8ecbff', now, 6000); }
+function quizMsg(m, now) {
+  if (m.t === 'quiz') { syncClock(m.now); quiz = { phase: 'invite', id: m.id, topicName: m.topicName, n: m.n, until: m.until, yes: 0, no: 0, total: 0, mine: null }; quizBanner(`🧠 랜덤퀴즈가 시작돼요! 주제: ${m.topicName} (1분 안에 수락/거절을 눌러 주세요)`, '#c9b8ff', now); if (!quiet) SND.quiz(); return; }
+  if (!quiz || quiz.id !== m.id) { if (m.t === 'qend') quiz = null; return; }
+  if (m.t === 'qprog') { quiz.yes = m.yes; quiz.no = m.no; quiz.total = m.total; }
+  else if (m.t === 'qstart') {
+    quiz.joined = m.players.some((p) => p.uid === cfg.uid); quiz.players = m.players;
+    quizBanner(`🧠 퀴즈 시작! 참가자: ${m.players.map((p) => p.name).join(', ')}`, '#c9b8ff', now);
+    if (!quiz.joined) quiz = null; else quiz.phase = 'wait';
+  } else if (m.t === 'qq') { syncClock(m.now); Object.assign(quiz, { phase: 'ask', i: m.i, n: m.n, text: m.text, choices: m.choices, until: m.until, myAns: null, answered: 0, atotal: quiz.players ? quiz.players.length : 0, right: null }); if (!quiet) SND.quiz(); }
+  else if (m.t === 'qa') { quiz.answered = m.answered; quiz.atotal = m.total; }
+  else if (m.t === 'qres') {
+    Object.assign(quiz, { phase: 'reveal', correct: m.correct, right: m.right, counts: m.counts, revealAt: now });
+    for (const r of m.right) applyXp(r.uid, r.name, r.xp, now);
+    const mine = m.right.find((r) => r.uid === cfg.uid); if (mine) window.api.saveXp(cfg.activeCode, mine.xp);
+    (mine ? SND.ok : SND.no)();
+    if (mine) fx.push({ type: 'text', x: (peers.get(myId) || { x: W / 2 }).x, y: GROUND() - 90, text: `정답! EXP +${mine.gain}`, start: now, dur: 1800, color: '#8dffb0', size: 18 });
+  } else if (m.t === 'qend') {
+    const joined = quiz.joined && m.board.length;
+    const mine = m.board.find((b) => b.uid === cfg.uid); if (mine) window.api.saveXp(cfg.activeCode, mine.xp);
+    if (m.reason === 'noone') { quizBanner('🧠 참여자가 없어서 퀴즈가 취소됐어요', '#cfd4e4', now); quiz = null; }
+    else if (m.reason === 'off' || m.reason === 'gone') { quizBanner('🧠 퀴즈가 중단됐어요', '#cfd4e4', now); quiz = null; }
+    else if (joined) { quiz.phase = 'board'; quiz.board = m.board; quiz.boardUntil = now + 9000; }
+    else { const top = m.board[0]; quizBanner(top ? `🧠 퀴즈 종료! 1등 ${top.name} (${top.right}/${m.n}문제 정답)` : '🧠 퀴즈 종료', '#c9b8ff', now); quiz = null; }
+  }
+}
+function quizBtn(x, y, w, h, label, o, now) {                                   // 카드 안 버튼: 그리기 + 클릭 영역 등록
+  const hov = mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h && !o.off;
+  g.fillStyle = o.fill || (hov ? '#3b3f6e' : '#2b2e55'); g.strokeStyle = o.border || (hov ? '#ffd23f' : '#6b70b0'); g.lineWidth = o.sel ? 3 : 2;
+  g.beginPath(); g.roundRect(x, y, w, h, 10); g.fill(); g.stroke();
+  if (o.lines) { g.font = `600 ${o.size || 15}px ${QFONT}`; g.textAlign = 'left'; g.fillStyle = o.color || '#fff'; const lh = (o.size || 15) + 6; o.lines.forEach((l, k) => g.fillText(l, x + 12, y + 10 + (o.size || 15) + k * lh - 2)); if (o.right) { g.textAlign = 'right'; g.fillStyle = '#cfd4e4'; g.font = `600 12px ${QFONT}`; g.fillText(o.right, x + w - 10, y + h / 2 + 4); } }
+  else { g.font = `700 16px ${QFONT}`; g.textAlign = 'center'; g.fillStyle = o.color || '#fff'; g.fillText(label, x + w / 2, y + h / 2 + 6); }
+  if (o.act && !o.off) quizRects.push({ x, y, w, h, act: o.act, arg: o.arg });
+}
+function quizCard(x, y, w, h, color) {
+  g.save(); g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 18; g.fillStyle = 'rgba(24,22,52,.97)'; g.beginPath(); g.roundRect(x, y, w, h, 16); g.fill(); g.restore();
+  g.strokeStyle = color || '#b9a9ff'; g.lineWidth = 3; g.beginPath(); g.roundRect(x, y, w, h, 16); g.stroke(); quizBounds = { x, y, w, h };
+}
+function drawQuiz(now) {
+  quizRects = []; quizBounds = null; if (!quiz) return;
+  const sNow = serverNow();
+  if (quiz.phase === 'invite' && sNow > quiz.until + 6000) { quiz = null; return; }
+  if (quiz.phase === 'board' && now > quiz.boardUntil) { quiz = null; return; }
+  const left = (u) => Math.max(0, Math.ceil((u - sNow) / 1000));
+  if (quiz.phase === 'invite') {
+    const w = Math.min(440, W - 24), h = 190, x = (W - w) / 2, y = 56; quizCard(x, y, w, h, '#c9b8ff');
+    g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = `800 21px ${QFONT}`; g.fillText('🧠 랜덤퀴즈 도전!', x + w / 2, y + 36);
+    g.font = `600 14px ${QFONT}`; g.fillStyle = '#cfd4e4'; g.fillText(`주제: ${quiz.topicName}  ·  ${quiz.n}문제  ·  정답이면 EXP +10`, x + w / 2, y + 62);
+    g.fillStyle = '#ffd23f'; g.fillText(`남은 시간 ${left(quiz.until)}초  ·  수락 ${quiz.yes} / 거절 ${quiz.no}${quiz.total ? ` (접속 ${quiz.total}명)` : ''}`, x + w / 2, y + 86);
+    const bw = (w - 60) / 2;
+    quizBtn(x + 20, y + 104, bw, 46, '⭕ 수락', { act: 'yes', fill: quiz.mine === true ? '#2e7d4f' : '#24402f', border: quiz.mine === true ? '#8dffb0' : '#4cd964', sel: quiz.mine === true }, now);
+    quizBtn(x + 40 + bw, y + 104, bw, 46, '❌ 거절', { act: 'no', fill: quiz.mine === false ? '#8a3a3a' : '#432626', border: quiz.mine === false ? '#ff9a9a' : '#ff6b6b', sel: quiz.mine === false }, now);
+    g.font = `500 12px ${QFONT}`; g.fillStyle = '#9ea3c8'; g.fillText(quiz.mine === null ? '전원이 고르거나 1분이 지나면 시작해요 (고르지 않으면 불참)' : quiz.mine ? '✅ 수락했어요 · 바꿀 수 있어요 · 곧 시작해요' : '거절했어요 · 바꿀 수 있어요', x + w / 2, y + 174);
+    return;
+  }
+  if (quiz.phase === 'wait') { const w = 300, h = 54, x = (W - w) / 2, y = 56; quizCard(x, y, w, h); g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = `700 16px ${QFONT}`; g.fillText('🧠 첫 문제를 준비하고 있어요…', x + w / 2, y + 33); return; }
+  if (quiz.phase === 'board') {
+    const rows = quiz.board.slice(0, 8), w = Math.min(420, W - 24), h = 110 + rows.length * 30, x = (W - w) / 2, y = 56; quizCard(x, y, w, h, '#ffd23f');
+    g.textAlign = 'center'; g.fillStyle = '#ffd23f'; g.font = `800 20px ${QFONT}`; g.fillText(`🏆 퀴즈 결과 · ${quiz.topicName || ''}`, x + w / 2, y + 36);
+    rows.forEach((b, k) => { const ry = y + 70 + k * 30; g.textAlign = 'left'; g.font = `700 15px ${QFONT}`; g.fillStyle = b.uid === cfg.uid ? '#8dffb0' : '#fff'; g.fillText(`${k + 1}. ${b.name}`, x + 24, ry); g.textAlign = 'right'; g.fillStyle = '#cfd4e4'; g.fillText(`${b.right}/${quiz.n} 정답  ·  EXP +${b.gain}`, x + w - 24, ry); });
+    quizBtn(x + w / 2 - 50, y + h - 40, 100, 30, '닫기', { act: 'close' }, now); return;
+  }
+  // 문제 카드 (ask / reveal)
+  const w = Math.min(780, W - 24), x = (W - w) / 2, y = 44, inner = w - 36, reveal = quiz.phase === 'reveal';
+  const ql = wrapLines(quiz.text, inner, `800 18px ${QFONT}`), cl = quiz.choices.map((c) => wrapLines(`${CIRC[quiz.choices.indexOf(c)]} ${c}`, inner - 70, `600 15px ${QFONT}`));
+  const chH = cl.map((l) => 20 + l.length * 21), h = 56 + ql.length * 26 + 14 + chH.reduce((a, b) => a + b + 8, 0) + 44;
+  quizCard(x, y, w, h, reveal ? '#8dffb0' : '#b9a9ff');
+  g.textAlign = 'left'; g.fillStyle = '#b9a9ff'; g.font = `700 13px ${QFONT}`; g.fillText((quiz.n > 1 ? `🧠 ${quiz.topicName} 퀴즈 ${quiz.i + 1} / ${quiz.n}` : `🧠 ${quiz.topicName} 퀴즈`), x + 18, y + 26);
+  g.textAlign = 'right'; g.fillStyle = '#ffd23f'; g.fillText(reveal ? `다음 문제까지 ${Math.max(0, Math.ceil((5000 - (now - quiz.revealAt)) / 1000))}초` : (left(quiz.until) > 0 ? `${left(quiz.until)}초` : '채점 중…'), x + w - 18, y + 26);
+  if (!reveal) { const frac = Math.max(0, Math.min(1, (quiz.until - sNow) / 20000)); g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(x + 18, y + 34, inner, 5); g.fillStyle = frac > 0.3 ? '#8ecbff' : '#ff6b6b'; g.fillRect(x + 18, y + 34, inner * frac, 5); }
+  g.textAlign = 'left'; g.font = `800 18px ${QFONT}`; g.fillStyle = '#fff'; ql.forEach((l, k) => g.fillText(l, x + 18, y + 66 + k * 26));
+  let cy = y + 56 + ql.length * 26 + 14;
+  quiz.choices.forEach((c, k) => {
+    const sel = quiz.myAns === k, ok = reveal && k === quiz.correct, bad = reveal && sel && k !== quiz.correct;
+    quizBtn(x + 18, cy, inner, chH[k], '', { lines: cl[k], size: 15, act: 'ans', arg: k, off: reveal || quiz.myAns !== null || left(quiz.until) <= 0, sel: sel || ok,
+      fill: ok ? '#245c3a' : bad ? '#6b2c2c' : sel ? '#4a4380' : undefined, border: ok ? '#8dffb0' : bad ? '#ff8a8a' : sel ? '#ffd23f' : undefined, right: reveal ? `${quiz.counts[k]}명` : '' }, now);
+    cy += chH[k] + 8;
+  });
+  g.textAlign = 'center'; g.font = `600 13px ${QFONT}`;
+  if (reveal) { g.fillStyle = quiz.right.some((r) => r.uid === cfg.uid) ? '#8dffb0' : '#ff9a9a'; const names = quiz.right.map((r) => r.name).join(', '); g.fillText(quiz.right.some((r) => r.uid === cfg.uid) ? `🎉 정답! EXP +10   (정답자: ${names})` : (quiz.myAns === null ? '⏰ 시간 초과' : '😢 오답') + (quiz.right.length ? `   (정답자: ${names})` : '   (아무도 못 맞혔어요)'), x + w / 2, y + h - 16); }
+  else { g.fillStyle = quiz.myAns === null ? '#cfd4e4' : '#8dffb0'; g.fillText(quiz.myAns === null ? '보기를 클릭해서 답하세요' : `✅ 제출했어요 (${quiz.answered}/${quiz.atotal}명 답함)`, x + w / 2, y + h - 16); }
+}
+function quizClick(x, y, now) {                                                                // 카드 위 클릭이면 처리하고 true (캐릭터/보스 클릭으로 넘어가지 않게)
+  if (!quiz || !quizBounds) return false;
+  for (const r of quizRects) if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+    if (r.act === 'yes' || r.act === 'no') { quiz.mine = r.act === 'yes'; send({ t: 'qjoin', id: quiz.id, yes: quiz.mine }); }
+    else if (r.act === 'ans' && quiz.myAns === null) { quiz.myAns = r.arg; send({ t: 'qans', id: quiz.id, i: quiz.i, c: r.arg }); }
+    else if (r.act === 'close') quiz = null;
+    return true;
+  }
+  const b = quizBounds; return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+}
+
 // ---------- 확성기: 화면 가운데에 크게 뜨는 안내 (이름 : 내용) ----------
 const megas = [];
 function pushMega(name, text, now, o = {}) {
@@ -424,9 +554,10 @@ function megaLayout(m) {                                                        
 function drawMegas(now) {
   for (let i = megas.length - 1; i >= 0; i--) if (now - megas[i].start > megas[i].dur) megas.splice(i, 1);
   if (quiet || !megas.length) return;
-  let y = H * 0.42;
+  const down = !!quizBounds; let y = H * 0.42, cursor = down ? quizBounds.y + quizBounds.h + 14 : 0;           // 퀴즈 카드가 떠 있으면 카드 아래로 차례로 쌓음
   for (let i = megas.length - 1; i >= 0; i--) {                                 // 최신이 가운데, 이전 것은 그 위로
     const m = megas[i]; if (!m.lines) megaLayout(m); const el = now - m.start, left = m.dur - el;
+    if (down) { y = cursor + m.h / 2; cursor += m.h + 10; if (y + m.h / 2 > H) continue; }
     const pop = el < 260 ? 1 + 2.2 * Math.pow(el / 260 - 1, 3) + 1.2 * Math.pow(el / 260 - 1, 2) : 1, sc = el < 260 ? Math.max(0.3, pop) : 1;     // 튀어나오듯 커졌다가 자리잡음
     const a = Math.min(1, el / 120) * Math.min(1, left / 450), cx = W / 2, top = y - m.h / 2;
     g.save(); g.globalAlpha = a * (i === megas.length - 1 ? 1 : 0.85); g.translate(cx, y); g.scale(sc, sc); g.translate(-cx, -y);
@@ -437,7 +568,7 @@ function drawMegas(now) {
       if (m.plain) { g.fillStyle = m.color; g.fillText(l, x, ty); }
       else if (k === 0 && l.startsWith(m.prefix)) { g.fillStyle = '#ffd23f'; g.fillText(m.prefix, x, ty); g.fillStyle = '#fff'; g.fillText(l.slice(m.prefix.length), x + g.measureText(m.prefix).width, ty); }
       else if (k === 0) { g.fillStyle = '#ffd23f'; g.fillText(l, x, ty); } else { g.fillStyle = '#fff'; g.fillText(l, x, ty); } });
-    g.restore(); y -= m.h + 12;
+    g.restore(); if (!down) y -= m.h + 12;
   }
 }
 function drawFx(f, now) {                                                          // false 를 돌려주면 끝난 효과
@@ -452,7 +583,14 @@ function drawFx(f, now) {                                                       
   } else if (f.type === 'screenflash') { g.globalAlpha = 0.55 * (1 - t); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
   } else if (f.type === 'ring') { g.globalAlpha = 1 - t; g.strokeStyle = f.color; g.lineWidth = 4; g.beginPath(); g.arc(f.x, f.y, 10 + (f.r || 60) * t, 0, 7); g.stroke(); g.globalAlpha = 1; }
   else if (f.type === 'text') { g.globalAlpha = 1 - Math.max(0, (t - 0.6) / 0.4); g.font = `700 ${f.size || 13}px system-ui, sans-serif`; g.textAlign = 'center'; const y = f.y - t * 18; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.65)'; g.strokeText(f.text, f.x, y); g.fillStyle = f.color || '#fff'; g.fillText(f.text, f.x, y); g.globalAlpha = 1; }
-  else if (f.type === 'slashfx') {                                                  // 베기: 대각선 두 줄기(하나는 엇갈려서) 번쩍
+  else if (f.type === 'fpuff') {                                                    // 불길 덩어리: 노랑 -> 주황 -> 빨강으로 변하며 커지고 사라짐
+    const el = (now - f.start) / 1000, px = f.x + f.vx * el, py = f.y + f.vy * el, r = f.r0 + (f.r1 - f.r0) * t, col = t < 0.25 ? '255,246,190' : t < 0.55 ? '255,196,60' : t < 0.8 ? '255,106,28' : '194,51,31';
+    g.save(); g.globalCompositeOperation = 'lighter'; const gr = g.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, `rgba(${col},${0.85 * (1 - t)})`); gr.addColorStop(0.6, `rgba(${col},${0.45 * (1 - t)})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.beginPath(); g.arc(px, py, r, 0, 7); g.fill(); g.restore();
+  } else if (f.type === 'burnfx') {                                               // 화상: 대상 몸에서 작은 불꽃이 일렁임
+    const c = center(f.to), bw = f.to.bw || 40, bh = f.to.bh || 50, fade = 1 - Math.max(0, (t - 0.6) / 0.4);
+    for (let i = 0; i < 7; i++) { const x = c.x + (i - 3) * bw / 7.5, hh = (0.3 + 0.22 * Math.sin(now / 85 + i * 1.9)) * bh, by = c.y + bh * 0.42; for (let k = 0; k < 3; k++) { g.globalAlpha = 0.9 * fade * (1 - k * 0.2); g.fillStyle = ['#ffd23f', '#ff9f1c', '#ff5a36'][k]; const hk = hh * (1 - k * 0.28); g.fillRect(Math.round(x / 4) * 4, Math.round((by - hk - k * 3) / 4) * 4, 6 - k, Math.max(4, hk)); } }
+    g.globalAlpha = 1;
+  } else if (f.type === 'slashfx') {                                                  // 베기: 대각선 두 줄기(하나는 엇갈려서) 번쩍
     const L = 66 * SIZE; g.lineCap = 'round';
     for (const [k, off, dl] of [[1, 0, 0], [-1, 6, 0.28]]) { const u = Math.min(1, Math.max(0, (t - dl) / (0.55 - dl * 0.5))); if (u <= 0) continue; const a0 = { x: f.x - f.dir * L * 0.75, y: f.y - k * L * 0.55 + off }, a1 = { x: f.x + f.dir * L * 0.75, y: f.y + k * L * 0.55 + off }, ex = a0.x + (a1.x - a0.x) * u, ey = a0.y + (a1.y - a0.y) * u, sx = a0.x + (a1.x - a0.x) * Math.max(0, u - 0.55), sy = a0.y + (a1.y - a0.y) * Math.max(0, u - 0.55);
       g.globalAlpha = 1 - Math.max(0, (t - 0.45) / 0.55); for (const [w, col] of [[16, 'rgba(120,200,255,.5)'], [7, '#ffffff']]) { g.strokeStyle = col; g.lineWidth = w * SIZE * (1 - Math.max(0, u - 0.7)); g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.stroke(); } }
@@ -500,16 +638,22 @@ function attack(p, now) {                                                       
     AC.resume(); armedUntil = 0; send(p.isBoss ? { t: 'bthrow', item: myThrow } : { t: 'throw', to: p.id, item: myThrow }); }
   else if (me && myCd >= 1000) fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `쿨타임 ${((myCd - (now - useCd.last.get('throw'))) / 1000).toFixed(1)}초`, start: now, dur: 900, color: '#8ecbff' });
 }
+let holdAtk = null; const mouse = { x: -1e4, y: -1e4 };
+addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+addEventListener('mouseup', () => { holdAtk = null; }); addEventListener('blur', () => { holdAtk = null; });
+const setHold = (p, now) => { if (myT.kind === 'flame' && !(myT.unlock && Bz.levelInfo(xps[cfg.uid] || 0).lv < myT.unlock)) holdAtk = { p, start: now }; };
 cv.addEventListener('mousedown', (e) => {
-  const now = performance.now(), p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) return;
-  if (p.isBoss) { attack(p, now); return; }
+  const now = performance.now(); if (e.button === 0 && quizClick(e.offsetX, e.offsetY, now)) return;
+  const p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) return;
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  if (p.isBoss) { attack(p, now); setHold(p, now); return; }
   if (e.button === 2) p.infoUntil = now + 4000;                                              // 오른쪽 클릭: 레벨/경험치 카드
   if (p.id === myId) {
     if (e.button === 0) { window.api.selfClick(); selfClick.click(now); }                                                  // 한 번: 입력창 / 두 번: 크기 효과
     else if (e.button === 2 && cfg.throwGuard && rightClick.press(now)) armedUntil = now + IA.THROW.armMs;   // 오른쪽 두 번: 10초 동안 던지기 대기
   } else if (e.button === 0 && throwOn(now)) {
     if (IA.isGuarded(p, now)) { blockFx(center(p), now); return; }                          // 기절 중이거나 막 풀린(무적) 친구에게는 던질 수 없음
-    attack(p, now);
+    attack(p, now); setHold(p, now);
   }
 });
 
@@ -576,7 +720,7 @@ function motionOf(p, now) {                          // 지금 어떤 모션인�
 const visW = (p) => Math.min(190, Math.max(p.bw || 40, p.nameW || 0, p.bubW || 0));   // 겹침 판단 폭: 몸/이름표/말풍선 중 가장 넓은 것
 const frozen = (p, now) => p.state !== 'online' || p.stunUntil > now || now - p.hitAt < IA.HIT_MS || now - p.throwAt < 390;
 
-if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; }, get boss() { return boss; }, bossProxy, get xps() { return xps; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
+if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; }, get boss() { return boss; }, bossProxy, get xps() { return xps; }, get quiz() { return quiz; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
 let last = performance.now(), lastPos = 0, sentWalk = false, lastRegions = 0, lastRegionKey = '', lastRegionSend = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -629,7 +773,12 @@ function frame(now) {
     }
     for (const p of peers.values()) { const t = Math.max(-120, Math.min(120, tg.get(p))); p.bOff = (p.bOff || 0) + (t - (p.bOff || 0)) * Math.min(1, dt * 10); if (Math.abs(p.bOff) < 0.3 && !t) p.bOff = 0; }
   }
-  updateBoss(now); drawBoss(now);
+  updateBoss(now); pumpBurns(now); drawBoss(now);
+  if (holdAtk) {                                                                // 화염방사기: 누르고 있으면 계속 뿜음 (대상 위에서 마우스를 떼거나 벗어나면 멈춤)
+    const hp = holdAtk.p, alive = hp.isBoss ? (boss && !boss.dead) : (peers.has(hp.id) && hp.state !== 'offline'), hh = hp.isBoss ? hp.bh : (hp.bh || 50), hcy = hp.isBoss ? hp.cy : GROUND() - hh / 2;
+    if (!alive || !myId || selfStunned(now) || now - holdAtk.start > 8000 || Math.abs(mouse.x - hp.x) > (hp.bw || 40) / 2 + 40 || Math.abs(mouse.y - hcy) > hh / 2 + 40) holdAtk = null;
+    else if (hp.isBoss || !IA.isGuarded(hp, now)) attack(hp, now);
+  }
   for (const p of peers.values()) {
     p.lx = lungeX(p, now);
     const [state, t] = motionOf(p, now), b0 = bounds(p.look, state, t), base = { w: b0.w * SIZE, h: b0.h * SIZE };
@@ -642,7 +791,10 @@ function frame(now) {
     if (p.kb) {                                    // 날아가는 중: 속도에 비례해 떠오르고 빙글빙글 돎
       const lift = Math.min(46, Math.abs(p.kb.v) * 0.025), bh = p.bh || 50, cy = GROUND() - lift - bh / 2;
       g.save(); g.translate(p.x, cy); g.rotate(p.kb.spin); draw(g, p.look, 0, bh / 2, { state, t, flip: p.dir < 0, scale: scale * SIZE }); g.restore(); top = GROUND() - lift - bh;
-    } else top = draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
+    } else {
+      top = draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
+      if (p.burnUntil > now) { g.save(); g.filter = 'sepia(1) saturate(8) hue-rotate(-38deg)'; g.globalAlpha = 0.5 + 0.15 * Math.sin(now / 80); draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE }); g.restore(); }      // 화상: 살짝 빨개짐
+    }
     { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !((HT.kind === 'punch' || HT.kind === 'slash') && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top); p.bubW = 0;
@@ -670,6 +822,7 @@ function frame(now) {
       const w = (p.bw || width(p.look) * SIZE) + 8, h = (p.bh || height(p.look) * SIZE) + 4; rects.push({ x: Math.round(p.x - w / 2), y: Math.round(GROUND() - h + 2), w: Math.round(w), h: Math.round(h) });
     }
     if (boss && !boss.dead && myId && throwOn(now)) rects.push({ x: Math.round(bossProxy.x - bossProxy.bw / 2 - 4), y: Math.round(bossProxy.cy - bossProxy.bh / 2 - 4), w: Math.round(bossProxy.bw + 8), h: Math.round(bossProxy.bh + 8) });   // 보스도 클릭 가능 영역
+    if (quizBounds) rects.push({ x: Math.round(quizBounds.x), y: Math.round(quizBounds.y), w: Math.round(quizBounds.w), h: Math.round(quizBounds.h) });   // 퀴즈 카드도 클릭 가능 영역
     const key = JSON.stringify(rects); if (key !== lastRegionKey || now - lastRegionSend > 1000) { lastRegionKey = key; lastRegionSend = now; window.api.setRegions(rects); }   // 바뀌었거나 1초마다 다시 보냄(혹시 놓쳐도 복구)
   }
   if (cfg.throwGuard && armedUntil > now) {        // 던지기 대기 중: 친구 캐릭터에 점선 원 + 남은 시간
@@ -694,10 +847,13 @@ function frame(now) {
     if (t >= 1) { impact(s, tc, now); shots.splice(i, 1); continue; }
     if (s.tier >= 1 && s.kind !== 'punch' && s.kind !== 'slash' && s.kind !== 'flame') { const ap = shotPos(s, tc, t); if (ap) drawAura(ap.x, ap.y, (s.kind === 'gun' ? 20 : s.kind === 'cannon' ? 30 : 24) * SIZE, s.tier, now); }
     if (s.kind === 'flame') {                                                      // 불길: 총구에서 대상 쪽으로 쉴 새 없이 뿜어져 나옴
-      const mz = gunMuzzle(s.from, now, 'flamer', s.T.hs), dx = tc.x - mz.x, dy = tc.y - mz.y, dist = Math.max(60, Math.hypot(dx, dy)), ang = Math.atan2(dy, dx), n = Math.ceil(dt * 330);
-      for (let k = 0; k < n; k++) parts(mz.x, mz.y, 1, ['#fff3b0', '#ffd23f', '#ffb703', '#ff7b1c', '#ff5a36', '#cb473a'], { angle: ang, spread: 0.2, min: dist * 2.0, max: dist * 3.0, gy: -90, size: Math.random() < 0.5 ? 12 : 8, dmin: 320, dmax: 470 });
+      const mz = gunMuzzle(s.from, now, 'flamer', s.T.hs), dx = tc.x - mz.x, dy = tc.y - mz.y, dist = Math.max(60, Math.hypot(dx, dy)), ang = Math.atan2(dy, dx), n = Math.ceil(dt * 110);
+      for (let q = 0; q < n; q++) {                                                // 말랑한 불길 덩어리들이 앞으로 퍼지며 날아감 (대포처럼 한 방에 터지지 않고 계속 뿜어져 나옴)
+        const sp = dist / 0.42 * rnd(0.8, 1.12), a2 = ang + rnd(-0.07, 0.07), pj = rnd(-3, 3);
+        fx.push({ type: 'fpuff', x: mz.x - Math.sin(ang) * pj, y: mz.y + Math.cos(ang) * pj, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp - 30, r0: 5 * SIZE, r1: rnd(20, 32) * SIZE, start: now, dur: rnd(330, 460) });
+        if (Math.random() < 0.35) parts(mz.x, mz.y, 1, ['#fff3b0', '#ffb703', '#ff7b1c'], { angle: ang, spread: 0.22, min: dist * 2.2, max: dist * 3.0, gy: -90, size: 6, dmin: 250, dmax: 400 });
+      }
       if (s.tier >= 1) drawAura(mz.x, mz.y, 26 * SIZE, s.tier, now);
-      fx.push({ type: 'flash', x: mz.x, y: mz.y, start: now, dur: 100, angle: ang });
     } else if (s.kind === 'gun') {                                                        // 총알: 일직선, 아주 빠름
       const p = PJ.linePos(s.x0, s.y0, tc.x, tc.y, t), ang = Math.atan2(tc.y - s.y0, tc.x - s.x0);
       g.save(); g.translate(p.x, p.y); g.rotate(ang); g.fillStyle = 'rgba(255,214,102,0.45)'; g.fillRect(-46, -1, 40, 2); g.fillStyle = '#ffd23f'; g.fillRect(-14, -2, 10, 4); g.fillStyle = '#fff8d0'; g.fillRect(-4, -3, 14, 6); g.restore();
@@ -738,6 +894,7 @@ function frame(now) {
     if (lvl > 0) { const gx = me.x + (me.bw || 40) / 2 + 10, gh = 34, gy = GROUND() - gh - 4; g.fillStyle = 'rgba(20,20,30,.8)'; g.fillRect(gx - 1, gy - 1, 8, gh + 2); g.fillStyle = over ? (Math.floor(now / 120) % 2 ? '#ff453a' : '#ffd23f') : lvl > 0.6 ? '#ff9f0a' : '#ffd23f'; g.fillRect(gx, gy + gh * (1 - lvl), 6, gh * lvl); }
     if (over && Math.random() < 0.5) { const mz = gunMuzzle(me, now, 'gatling', myT.hs); parts(mz.x, mz.y, 1, ['#8d99ae', '#cfd4e4', '#ffffff'], { min: 10, max: 40, gy: -70, size: 8, dmin: 500, dmax: 900 }); }
   }
+  drawQuiz(now);
   drawMegas(now);
   if (status) {                                    // 연결 상태 안내: 연결 중 = 주황, 그 외 = 빨강
     g.fillStyle = status.startsWith('연결 중') ? DOT.away : DOT.offline; g.beginPath(); g.arc(14, H - 12, 4, 0, 7); g.fill();

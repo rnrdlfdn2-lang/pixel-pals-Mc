@@ -69,7 +69,7 @@ function rpc(op, data = {}) {
   });
 }
 // 무료 서버는 파일이 지워질 수 있어서, 그룹 정보를 내 PC에도 복사해 두었다가 서버가 비어 있으면 같은 초대코드로 되살린다
-const toSnapshot = (g) => ({ boss: g.boss && { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin }, code: g.code, groupName: g.name, owner: (g.members.find((m) => m.owner) || g.members[0] || {}).uid, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look })) });
+const toSnapshot = (g) => ({ boss: g.boss && { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin }, quiz: g.quiz && { on: !!g.quiz.on, everyMin: g.quiz.everyMin }, code: g.code, groupName: g.name, owner: (g.members.find((m) => m.owner) || g.members[0] || {}).uid, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look })) });
 async function refreshGroups() {
   try {
     let list = await rpc('list');

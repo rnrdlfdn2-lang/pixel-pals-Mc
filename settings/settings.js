@@ -130,7 +130,7 @@ async function refreshGroups() {
   try {
     list = await rpc('list');
     if (list.length && !list.some((g) => g.code === st.activeCode)) await setActive(list[0].code);   // 내 그룹이 아니면 첫 그룹으로 (목록이 비었을 땐 건드리지 않음: 서버 데이터가 사라진 경우 현재 그룹을 지키려고)
-    api.pushGroups(list.map((g) => ({ code: g.code, name: g.name, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look, owner: m.owner })), boss: g.boss ? { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin } : undefined })));
+    api.pushGroups(list.map((g) => ({ code: g.code, name: g.name, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look, owner: m.owner })), boss: g.boss ? { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin } : undefined, quiz: g.quiz ? { on: !!g.quiz.on, everyMin: g.quiz.everyMin } : undefined })));
     renderGroups();
   } catch (e) { $('#list').replaceChildren(el('p', { class: 'sub', text: e.message })); }
 }
@@ -145,6 +145,18 @@ const fmtMin = (n) => (n >= 60 && n % 60 === 0 ? `${n / 60}시간` : `${n}분`);
 function bossSelect(values, cur, onChange) {
   const vals = values.includes(cur) ? values : [...values, cur].sort((a, b) => a - b), sel = el('select', {}, vals.map((v) => el('option', { value: v, text: fmtMin(v) })));
   sel.value = String(cur); sel.addEventListener('change', () => onChange(Number(sel.value))); return sel;
+}
+function quizPanel(g) {                                                              // 랜덤퀴즈: 방장은 켜기/끄기 + 주기, 모두에게 같이 적용
+  const q = g.quiz || { on: false, everyMin: 60 }, box = el('div', { class: 'bosspanel' }, el('div', { class: 'bt', text: '🧠 랜덤퀴즈' }));
+  box.append(el('div', { class: 'stat', text: q.active ? '지금 퀴즈가 진행 중이에요!' : q.on ? `다음 퀴즈: 약 ${Math.max(1, Math.ceil((q.nextInMs || 0) / 60000))}분 뒤 (앱을 켜 둔 그룹원이 있을 때만)` : '랜덤퀴즈가 꺼져 있어요' }));
+  if (g.owner) {
+    const save = (patch) => act(async () => { await rpc('quizcfg', { code: g.code, ...patch }); await refreshGroups(); }, '퀴즈 설정을 바꿨어요 (그룹원 모두에게 적용)');
+    const cb = el('input', { type: 'checkbox' }); cb.checked = !!q.on; cb.addEventListener('change', () => save({ on: cb.checked }));
+    const go = el('button', { class: 'b', text: '지금 시작', onclick: () => act(async () => { await rpc('quiznow', { code: g.code }); await refreshGroups(); }, '퀴즈 공지를 띄웠어요!') }); if (!q.on || q.active) go.disabled = true;
+    box.append(el('div', { class: 'ctl' }, el('label', {}, cb, el('span', { text: '랜덤퀴즈' })), el('label', {}, el('span', { text: '출제 주기' }), bossSelect(BOSS_EVERY, q.everyMin, (v) => save({ everyMin: v })), el('span', { text: '마다' })), go));
+  } else box.append(el('div', { class: 'stat', text: `방장 설정: ${q.on ? '켜짐' : '꺼짐'} · ${fmtMin(q.everyMin)}마다 출제` }));
+  box.append(el('div', { class: 'note', text: '공지가 뜨면 1분 안에 수락/거절! 수락한 사람끼리 1문제를 풀고, 맞히면 경험치 +10을 받아요. (주제는 시계/게임/애니 중 무작위)' }));
+  return box;
 }
 function bossPanel(g) {                                                              // 방장: 켜기/끄기, 출현 주기, 머무는 시간 / 모두: 내 레벨, 지금 상태
   const b = g.boss || { on: false, everyMin: 60, lastsMin: 10 }, li = Bosses.levelInfo(g.xp || 0), box = el('div', { class: 'bosspanel' }, el('div', { class: 'bt', text: '👹 보스 몬스터' }));
@@ -192,7 +204,7 @@ function groupCard(g) {
       el('button', { class: 'b', text: '이름 변경', onclick: () => { renaming = g.code; renderGroups(); } }),
       el('button', { class: 'b danger', text: '그룹 삭제', onclick: () => confirm(`'${g.name}' 그룹을 삭제할까요?\n되돌릴 수 없어요.`) && act(async () => { await rpc('delete', { code: g.code }); api.forgetGroup(g.code); await refreshGroups(); }, '그룹을 삭제했어요') }));
   }
-  card.append(el('div', { class: 'gbody' }, members, bossPanel(g), foot));
+  card.append(el('div', { class: 'gbody' }, members, bossPanel(g), quizPanel(g), foot));
   return card;
 }
 
