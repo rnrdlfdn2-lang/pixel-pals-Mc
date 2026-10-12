@@ -81,11 +81,12 @@ function showPage(p) {
 addEventListener('focus', () => !$('#groups').hidden && refreshGroups());
 
 // ---------- 내 프로필 ----------
-function options(list, isSel, make, onPick) {
-  return el('div', { class: 'opts' }, list.map((it, i) =>
-    el('button', { class: 'opt' + (isSel(it, i) ? ' sel' : ''), onclick: () => onPick(it, i) }, make(it, i), el('span', { text: it.name }), el('span', { class: 'check', text: '✓' }))));
+function options(list, isSel, make, onPick, lockOf) {
+  return el('div', { class: 'opts' }, list.map((it, i) => { const lk = lockOf ? lockOf(it, i) : ''; return el('button', { class: 'opt' + (isSel(it, i) ? ' sel' : '') + (lk ? ' locked' : ''), onclick: () => onPick(it, i) }, make(it, i), el('span', { text: lk ? `🔒 ${it.name}` : it.name }), lk ? el('span', { class: 'lk', text: lk }) : null, el('span', { class: 'check', text: '✓' })); }));
 }
 function renderProfile() {
+  try { const fresh = api.getSettings(); if (fresh && fresh.xp) st.xp = fresh.xp; } catch {}
+  const myLv = Bosses.levelInfo(Number((st.xp || {})[st.activeCode]) || 0).lv;
   $('#nick').value = st.nickname;
   $('#showoff').checked = st.showOffline !== false;
   $('#throwguard').checked = !!st.throwGuard;
@@ -98,7 +99,7 @@ function renderProfile() {
   $('#chars').replaceChildren(options(CHARACTERS, (_, i) => i === st.character, (_, i) => icon(i), (_, i) => save({ character: i }, true)));
   $('#bubbles').replaceChildren(options(BUBBLES, (b) => b.id === st.bubble,
     (b) => el('div', { class: 'pill', style: `background:${b.bg};border-color:${b.border};color:${b.text}`, text: '안녕' }), (b) => save({ bubble: b.id })));
-  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === Sprites.normThrow(st.throwable), (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => save({ throwable: t.id })));
+  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === Sprites.normThrow(st.throwable), (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => (t.unlock && myLv < t.unlock ? toast(`🔒 ${t.name}은(는) Lv.${t.unlock} 부터 쓸 수 있어요 (지금 Lv.${myLv})`, true) : save({ throwable: t.id })), (t) => (t.unlock && myLv < t.unlock ? `Lv.${t.unlock}` : '')));
 }
 $('#showoff').addEventListener('change', () => save({ showOffline: $('#showoff').checked }).then(() => toast('저장했어요')));
 $('#throwguard').addEventListener('change', () => save({ throwGuard: $('#throwguard').checked }).then(() => toast('저장했어요')));
