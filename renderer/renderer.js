@@ -646,28 +646,30 @@ const hitTest = (x, y, now, button = 0) => {
 };
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
 const heat = { n: 0, last: 0, until: 0 };                                                  // 게틀링건 과열 상태
+let autoFire = false, lastSay = 0;
+const sayFx = (o) => { const n = performance.now(); if (autoFire && n - lastSay < 1000) return; lastSay = n; fx.push(o); };       // 꾹 눌러 자동 공격할 때는 안내 문구가 초당 수십 개 쌓이지 않게 1초에 한 번만
 function attack(p, now) {                                                                  // 친구 또는 보스에게 던지기/공격
   const me = peers.get(myId), myLv = Bz.levelInfo(xps[cfg.uid] || 0).lv;
-  if (myT.unlock && myLv < myT.unlock) { if (me) fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `🔒 ${myT.name}은(는) Lv.${myT.unlock} 부터 쓸 수 있어요`, start: now, dur: 1800, color: '#ffd23f' }); return; }
+  if (myT.unlock && myLv < myT.unlock) { if (me) sayFx({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `🔒 ${myT.name}은(는) Lv.${myT.unlock} 부터 쓸 수 있어요`, start: now, dur: 1800, color: '#ffd23f' }); return; }
   if (myT.burst) {                                                                           // 게틀링건: 연속 사격, 8발 쏘면 과열 -> 2초 쉼
-    if (now < heat.until) { if (me && now - (heat.warn || 0) > 700) { heat.warn = now; fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `🔥 과열! ${((heat.until - now) / 1000).toFixed(1)}초 식히는 중`, start: now, dur: 900, color: '#ff8a5c' }); } return; }
+    if (now < heat.until) { if (me && now - (heat.warn || 0) > 700) { heat.warn = now; sayFx({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `🔥 과열! ${((heat.until - now) / 1000).toFixed(1)}초 식히는 중`, start: now, dur: 900, color: '#ff8a5c' }); } return; }
     if (now - heat.last > 1200) heat.n = 0;
   }
   if (myT.range !== undefined && me) {                                                      // 근접 무기(황금 장갑): 가까이 있을 때만 쓸 수 있음 (멀면 쿨타임을 쓰지 않고 안내만)
     const gx = Math.max(0, Math.abs(me.x - p.x) - ((me.bw || 40) + (p.bw || 40)) / 2), gy = p.isBoss || p.isObj ? Math.max(0, (GROUND() - (me.bh || 50)) - (p.cy + p.bh / 2)) : 0;
-    if (Math.hypot(gx, gy) > myT.range * SIZE) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: (p.isBoss || p.isObj) && gy > 0 ? '너무 높이 있어요!' : '너무 멀어요! 가까이 가서 눌러요', start: now, dur: 1400, color: '#ffd23f' }); return; }
+    if (Math.hypot(gx, gy) > myT.range * SIZE) { sayFx({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: (p.isBoss || p.isObj) && gy > 0 ? '너무 높이 있어요!' : '너무 멀어요! 가까이 가서 눌러요', start: now, dur: 1400, color: '#ffd23f' }); return; }
   }
   if (useCd.accept('throw', now)) {
-    if (myT.burst) { heat.n++; heat.last = now; if (heat.n >= myT.burst) { heat.until = now + myT.overheatMs; heat.n = 0; if (me) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: '🔥 과열!!', start: now, dur: 1200, color: '#ff6b4a', size: 16 }); SND.block(); } } }
+    if (myT.burst) { heat.n++; heat.last = now; if (heat.n >= myT.burst) { heat.until = now + myT.overheatMs; heat.n = 0; if (me) { sayFx({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: '🔥 과열!!', start: now, dur: 1200, color: '#ff6b4a', size: 16 }); SND.block(); } } }
     AC.resume(); armedUntil = 0;
     if (p.isObj) { if (me) { me.throwAt = now; me.dir = Math.sign(p.x - me.x) || me.dir; spawnShot(myT, myThrow, me, p, now); send(p.isDoll ? { t: 'sthrow', d: p.o.id, item: myThrow } : { t: 'sthrow', k: p.o.k, item: myThrow }); } }       // 뿌셔뿌셔 물건: 내 화면에서 바로 쏘고, 친구들에겐 같이 보이게 알림
     else send(p.isBoss ? { t: 'bthrow', item: myThrow } : { t: 'throw', to: p.id, item: myThrow }); }
-  else if (me && myCd >= 1000) fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `쿨타임 ${((myCd - (now - useCd.last.get('throw'))) / 1000).toFixed(1)}초`, start: now, dur: 900, color: '#8ecbff' });
+  else if (me && myCd >= 1000) sayFx({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `쿨타임 ${((myCd - (now - useCd.last.get('throw'))) / 1000).toFixed(1)}초`, start: now, dur: 900, color: '#8ecbff' });
 }
 let holdAtk = null; const mouse = { x: -1e4, y: -1e4 };
 addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 addEventListener('mouseup', () => { holdAtk = null; }); addEventListener('blur', () => { holdAtk = null; });
-const setHold = (p, now) => { if (myT.kind === 'flame' && !(myT.unlock && Bz.levelInfo(xps[cfg.uid] || 0).lv < myT.unlock)) holdAtk = { p, start: now }; };
+const setHold = (p, now) => { if (!(myT.unlock && Bz.levelInfo(xps[cfg.uid] || 0).lv < myT.unlock)) holdAtk = { p, start: now }; };       // 어떤 무기든 꾹 누르고 있으면 자동으로 계속 공격 (쿨타임/과열은 그대로 적용)
 cv.addEventListener('mousedown', (e) => {
   const now = performance.now(); if (e.button === 0 && quizClick(e.offsetX, e.offsetY, now)) return;
   const p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) { if (e.button === 0 && fxc.smash && smashAt(e.offsetX, e.offsetY, now)) smashHeld = true; return; }
@@ -866,7 +868,7 @@ function breakObj(o, now, mine) {
   }
 }
 const dollAt = (x, y) => dolls.find((d) => d.hp > 0 && d.drop > -20 && Math.abs(x - d.x) < d.w / 2 && Math.abs(y - d.y) < d.h / 2);
-function smashAt(x, y, now) { const o = Smash.hit(sobjs, x, y), d = o ? null : dollAt(x, y); if (!o && !d) return false; if (throwOn(now)) attack(d ? dollTgt(d) : objTgt(o), now); return true; }       // 클릭 = 지금 고른 무기로 그 물건을 쏨
+function smashAt(x, y, now) { const o = Smash.hit(sobjs, x, y), d = o ? null : dollAt(x, y); if (!o && !d) return false; if (throwOn(now)) { const tg = d ? dollTgt(d) : objTgt(o); attack(tg, now); setHold(tg, now); } return true; }       // 클릭 = 지금 고른 무기로 그 물건을 쏨
 cv.addEventListener('mousemove', (e) => { if (!fxc.smash) { smashHover = null; return; } smashHover = Smash.hit(sobjs, e.offsetX, e.offsetY); const dh = smashHover ? null : dollAt(e.offsetX, e.offsetY); if (smashHeld && (smashHover || dh) && throwOn(performance.now())) attack(dh ? dollTgt(dh) : objTgt(smashHover), performance.now()); });
 addEventListener('mouseup', () => { smashHeld = false; });
 
@@ -892,6 +894,7 @@ function frame(now) {
         const others = []; for (const o of peers.values()) if (o.id !== myId && o.state !== 'offline') others.push({ id: o.id, x: o.x, w: visW(o), dir: o.dir, walking: !!o.walking, canWalk: o.state === 'online' && !frozen(o, now) && !o.kb });
         const pl = IA.passPlan({ x: p.x, w: visW(p), dir: p.dir, walking: !!p.walking, others, myId, active: !!p.passing });
         p.passing = pl.overlapping;
+        if (pl.stay) { p.walking = false; p.tx = null; p.wait = Math.max(p.wait || 0, 0.35); }                       // 상대가 지나가는 동안 나는 가만히 서 있음
         if (pl.startWalking && p.wait > 0) { p.wait = 0; p.tx = null; }                                              // 둘 다 서 있으면(또는 상대가 졸고 있으면) 기다리던 걸 멈추고 걷기 시작
         const want = pl.mul; p.boost = (p.boost || 1) + (want - (p.boost || 1)) * Math.min(1, dt * IA.PASS.easePerSec);   // 순간 확 바뀌지 않고 부드럽게 빨라졌다 느려짐
         if (p.wait > 0) { p.wait -= dt; p.walking = false; }
@@ -923,10 +926,12 @@ function frame(now) {
     for (const p of peers.values()) { const t = Math.max(-120, Math.min(120, tg.get(p))); p.bOff = (p.bOff || 0) + (t - (p.bOff || 0)) * Math.min(1, dt * 10); if (Math.abs(p.bOff) < 0.3 && !t) p.bOff = 0; }
   }
   updateBoss(now); pumpBurns(now); drawBoss(now);
-  if (holdAtk) {                                                                // 화염방사기: 누르고 있으면 계속 뿜음 (대상 위에서 마우스를 떼거나 벗어나면 멈춤)
-    const hp = holdAtk.p, alive = hp.isBoss ? (boss && !boss.dead) : (peers.has(hp.id) && hp.state !== 'offline'), hh = hp.isBoss ? hp.bh : (hp.bh || 50), hcy = hp.isBoss ? hp.cy : GROUND() - hh / 2;
-    if (!alive || !myId || selfStunned(now) || now - holdAtk.start > 8000 || Math.abs(mouse.x - hp.x) > (hp.bw || 40) / 2 + 40 || Math.abs(mouse.y - hcy) > hh / 2 + 40) holdAtk = null;
-    else if (hp.isBoss || !IA.isGuarded(hp, now)) attack(hp, now);
+  if (holdAtk) {                                                                // 꾹 누르고 있으면 계속 공격 (대상 위에서 마우스를 떼거나 벗어나면 멈춤)
+    const hp = holdAtk.p, big = hp.isBoss || hp.isObj;
+    const alive = hp.isDoll ? hp.o.hp > 0 && dolls.includes(hp.o) : hp.isObj ? sobjs.includes(hp.o) : hp.isBoss ? (boss && !boss.dead) : (peers.has(hp.id) && hp.state !== 'offline');
+    const hh = big ? hp.bh : (hp.bh || 50), hcy = big ? hp.cy : GROUND() - hh / 2;
+    if (!alive || !myId || selfStunned(now) || Math.abs(mouse.x - hp.x) > (hp.bw || 40) / 2 + 40 || Math.abs(mouse.y - hcy) > hh / 2 + 40) holdAtk = null;
+    else if (hp.isBoss || hp.isObj || !IA.isGuarded(hp, now)) { autoFire = true; attack(hp, now); autoFire = false; }
   }
   for (const p of peers.values()) {
     p.lx = lungeX(p, now);
