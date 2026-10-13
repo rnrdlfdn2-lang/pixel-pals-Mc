@@ -55,7 +55,7 @@ function connect() {
   status = '연결 중…';
   ws = new WebSocket(cfg.serverUrl);
   ws.onopen = () => { status = ''; send({ t: 'join', uid: cfg.uid, code: cfg.activeCode, xp: Number((cfg.xp || {})[cfg.activeCode]) || 0 }); };
-  ws.onclose = () => { myId = null; peers.clear(); boss = null; quiz = null; if (!stop) { status = '연결 중…'; setTimeout(connect, 3000); } };
+  ws.onclose = () => { myId = null; peers.clear(); boss = null; quiz = null; sobjs.length = 0; sNextK = null; dolls.length = 0; if (!stop) { status = '연결 중…'; setTimeout(connect, 3000); } };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
 function handle(m) {
@@ -66,7 +66,12 @@ function handle(m) {
     if (myState === 'away') send({ t: 'presence', state: 'away' });
     xps = { ...(m.xps || {}) }; const mine = Number((cfg.xp || {})[cfg.activeCode]) || 0; if (mine > (xps[cfg.uid] || 0)) xps[cfg.uid] = mine; window.api.saveXp(cfg.activeCode, xps[cfg.uid] || 0);
     boss = null; if (m.boss) { syncClock(m.boss.now); setBoss(m.boss, false, now); }
+    setFx(m.fx, false, now);
   }
+  else if (m.t === 'fxcfg') setFx(m, true, now);
+  else if (m.t === 'sthrow') { const a = peers.get(m.from), dl = m.d ? dolls.find((q) => q.id === m.d && q.hp > 0) : null, o = m.d ? dl : sobjs.find((q) => q.k === m.k); if (a && o) { a.throwAt = now; a.dir = Math.sign(o.x - a.x) || a.dir; spawnShot(findThrowable(m.item), m.item, a, dl ? dollTgt(dl) : objTgt(o), now); } }
+  else if (m.t === 'dhp') dollHp(m, now);
+  else if (m.t === 'smash') { for (const k of [].concat(m.k)) { const o = sobjs.find((q) => q.k === k); sBroken.add(k); if (o) breakObj(o, now, false); } }
   else if (m.t === 'boss') { syncClock(m.boss.now); setBoss(m.boss, true, now); }
   else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
   else if (m.t === 'bossend') endBoss(m, now);
@@ -93,7 +98,7 @@ function handle(m) {
     else if (Math.abs(dx) > IA.REMOTE.minMovePx) { p.lastMoveAt = now; p.dir = dx > 0 ? 1 : -1; }   // (예전 버전) 위치 변화로 추측
   }
   else if (m.t === 'chat' && m.bubble === 'mega') { const p = peers.get(m.id); if (p) p.typing = 0; pushMega(p ? p.name : '누군가', m.text, now); }           // 확성기: 캐릭터 위가 아니라 화면 가운데에 크게 (이전 앱에선 그냥 말풍선으로 보임)
-  else if (m.t === 'chat') { const p = peers.get(m.id); if (p) { p.typing = 0; p.bubbles = IA.pushBubble(p.bubbles, m.text, bubbleStyle(m.bubble), now); } }       // 연속 채팅은 위로 쌓여서 조금 더 보임
+  else if (m.t === 'chat') { const p = peers.get(m.id); if (p) { p.typing = 0; p.bubbles = IA.pushBubble(p.bubbles, m.text, bubbleStyle(m.bubble), now); if (isShout(m.text)) p.bubbles[p.bubbles.length - 1].shout = true; } }       // 연속 채팅은 위로 쌓여서 조금 더 보임
   else if (m.t === 'throw') {
     const a = peers.get(m.from), b = peers.get(m.to); if (!a || !b) return;
     a.throwAt = now; a.dir = Math.sign(b.x - a.x) || a.dir;                       // 던지는 모션 (받는 쪽을 바라봄)
@@ -137,6 +142,15 @@ const SND = {
   quiz: () => { tone(660, 990, 0.1, 'triangle', 0.1); setTimeout(() => tone(990, 1320, 0.14, 'triangle', 0.1), 110); },
   ok: () => { tone(880, 1320, 0.12, 'square', 0.08); setTimeout(() => tone(1320, 1760, 0.18, 'square', 0.08), 120); },
   no: () => tone(220, 110, 0.25, 'sawtooth', 0.09),
+  // 뿌셔뿌셔 존: 재질마다 부서지는 소리가 다름
+  sm_glass: () => { noise(0.3, 7000, 2500, 0.3, 'highpass'); [0, 40, 85, 140].forEach((d, i) => setTimeout(() => tone(2600 + i * 700, 1800 + i * 300, 0.12, 'triangle', 0.1), d)); },     // 챙그랑
+  sm_plate: () => { noise(0.14, 4500, 1200, 0.32, 'bandpass'); tone(1500, 700, 0.08, 'square', 0.12); setTimeout(() => { tone(1100, 500, 0.07, 'square', 0.09); noise(0.08, 3500, 900, 0.18, 'bandpass'); }, 70); },   // 와장창 달그락
+  sm_wood: () => { noise(0.12, 1200, 200, 0.45); tone(190, 80, 0.12, 'square', 0.22); setTimeout(() => { noise(0.08, 900, 200, 0.3); tone(240, 100, 0.07, 'square', 0.14); }, 60); },   // 우지직 퍽
+  sm_card: () => { noise(0.22, 900, 150, 0.32, 'lowpass'); tone(130, 70, 0.14, 'sine', 0.2); },                     // 푸석
+  sm_balloon: () => { noise(0.05, 9000, 3000, 0.6, 'highpass'); tone(320, 70, 0.1, 'sine', 0.35); },                // 빵!
+  sm_can: () => { tone(900, 420, 0.16, 'square', 0.14); tone(1800, 900, 0.1, 'triangle', 0.08); noise(0.1, 6000, 2500, 0.22, 'highpass'); },   // 깡! 찌그러짐
+  sm_melon: () => { noise(0.28, 700, 120, 0.5); tone(150, 55, 0.22, 'sine', 0.4); setTimeout(() => noise(0.12, 1800, 400, 0.22, 'bandpass'), 70); },   // 퍽! 철퍼덕
+  sm_plush: () => { noise(0.16, 700, 160, 0.38); tone(180, 70, 0.14, 'sine', 0.26); tone(520, 260, 0.06, 'triangle', 0.07); },     // 푹신 퍽
   punch: () => { noise(0.2, 1800, 80, 0.6); tone(150, 40, 0.3, 'sawtooth', 0.35); tone(900, 200, 0.12, 'square', 0.12); },   // 황금 장갑 한 방                                 // 철퍼덕
 };
 function globalOnHit(p, now, snd = 'boop', dir = 0, power = 1) {  // 맞음: 모션 + 소리 + 기절 판정 (10초 안에 10번 -> 6초 기절, 기절 중/풀린 뒤 2초는 무적이라 안 맞음). dir: 공격이 날아온 방향
@@ -161,7 +175,7 @@ function blockFx(t, now) {                      // 무적이라 막혔을 때: �
 
 // ---------- 던지기 아이템: 날아가기 / 총 / 효과 ----------
 const rad = (d) => d * Math.PI / 180, rnd = (a, b) => a + Math.random() * (b - a);
-const center = (p) => (p.isBoss ? { x: p.x, y: p.cy } : { x: p.x, y: GROUND() - (p.bh || height(p.look) * SIZE) / 2 });
+const center = (p) => (p.isObj ? { x: p.o.x, y: p.o.y } : p.isBoss ? { x: p.x, y: p.cy } : { x: p.x, y: GROUND() - (p.bh || height(p.look) * SIZE) / 2 });
 function gunPivot(p) { return { x: p.x + (p.lx || 0) + (p.dir >= 0 ? 1 : -1) * (p.bw || width(p.look) * SIZE) * 0.22, y: GROUND() - (p.bh || height(p.look) * SIZE) * 0.40 }; }   // 총을 쥔 손 위치(몸 앞쪽)
 function gunAim(p, now) {                                                      // 총이 향하는 각도: 쏘는 중이면 대상 쪽, 평소엔 보는 방향
   if (now < p.aimUntil && p.aimTarget) { const pv = gunPivot(p), t = center(p.aimTarget); return PJ.aimAngle(pv.x, pv.y, t.x, t.y); }
@@ -263,8 +277,9 @@ function parts(x, y, n, colors, o = {}) {                                       
   for (let i = 0; i < n; i++) { const an = o.angle !== undefined ? o.angle + rnd(-(o.spread || 0.6), o.spread || 0.6) : rnd(0, Math.PI * 2), sp = rnd(o.min || 60, o.max || 220);
     fx.push({ type: 'dot', x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - (o.up || 0), gy: o.gy === undefined ? 420 : o.gy, size: o.size || (Math.random() < 0.5 ? 4 : 6), color: colors[(Math.random() * colors.length) | 0], start: performance.now(), dur: rnd(o.dmin || 300, o.dmax || 560) }); }
 }
-function impact(s, t, now) {
-  const onHit = s.to.isBoss ? (_p, nw, snd, _d, _pw) => bossStrike(s, snd, nw) : globalOnHit;                  // 보스가 맞았을 땐 사람 맞음(기절 등) 대신 보스 피해 처리
+function impact(s, t, now) { impact0(s, t, now); if (s.to.isObj) smashResolve(s, t, now); }
+function impact0(s, t, now) {
+  const onHit = s.to.isObj ? (_p, _nw, snd) => { if (!quiet) (SND[snd] || boop)(); } : s.to.isBoss ? (_p, nw, snd, _d, _pw) => bossStrike(s, snd, nw) : globalOnHit;                  // 보스가 맞았을 땐 사람 맞음(기절 등) 대신 보스 피해 처리
   const dir = Math.sign(t.x - s.x0) || 1;                                       // 공격이 날아온 방향 (+1: 왼쪽에서 오른쪽으로)
   if (IA.isGuarded(s.to, now)) { blockFx(t, now); return; }                     // 기절 중이거나 막 풀린 상대는 맞지 않음 (폭탄도 안 터짐)
   if (s.kind === 'bomb') { onHit(s.to, now, 'boom', dir); fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 620, seed: Math.random() * 6 }); parts(t.x, t.y, 14, ['#3a3a40', '#ff9f1c', '#ffd23f', '#8d99ae'], { min: 90, max: 300, up: 90, dmin: 450, dmax: 800 }); shakeUntil = now + 320; }
@@ -276,7 +291,7 @@ function impact(s, t, now) {
   }
   else if (s.kind === 'axe') { onHit(s.to, now, 'thud', dir, s.power); parts(t.x, t.y, 10, ['#b8bfca', '#8b8e96', '#c17a43', '#ffffff'], { min: 60, max: 220, up: 60, dmin: 300, dmax: 520 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 260, color: '#cfd4e4' }); }
   else if (s.kind === 'bow') { onHit(s.to, now, 'tick', dir, s.power); parts(t.x, t.y, 7, ['#d9a066', '#ffffff', '#b8bfca'], { min: 60, max: 200, gy: 200, dmin: 200, dmax: 380, size: 4 }); }
-  else if (s.kind === 'flame') { onHit(s.to, now, 'burn', dir, s.power); if (!s.to.isBoss) startBurn(s, now); parts(t.x, t.y, 12, ['#fff3b0', '#ffd23f', '#ff7b1c'], { min: 40, max: 180, up: 120, gy: -140, size: 6, dmin: 400, dmax: 700 }); }
+  else if (s.kind === 'flame') { onHit(s.to, now, 'burn', dir, s.power); if (!s.to.isBoss && !s.to.isObj) startBurn(s, now); parts(t.x, t.y, 12, ['#fff3b0', '#ffd23f', '#ff7b1c'], { min: 40, max: 180, up: 120, gy: -140, size: 6, dmin: 400, dmax: 700 }); }
   else if (false) { fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 650, seed: Math.random() * 6, sc: 1.0 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 420, color: '#ff9f1c', r: 80 }); parts(t.x, t.y, 22, ['#fff3b0', '#ffd23f', '#ff9f1c', '#ff5a36'], { min: 60, max: 260, up: 160, gy: -120, size: 6, dmin: 500, dmax: 900 }); }
   else if (s.kind === 'slash') { onHit(s.to, now, 'slash', dir, s.power); fx.push({ type: 'slashfx', x: t.x, y: t.y, start: now, dur: 420, dir }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 300, color: '#bfe6ff', r: 70 }); parts(t.x, t.y, 14, ['#ffffff', '#bfe6ff', '#8ecbff'], { angle: dir > 0 ? -0.6 : Math.PI + 0.6, spread: 0.9, min: 120, max: 380, gy: 200, size: 4, dmin: 250, dmax: 500 }); }
   else if (s.kind === 'punch') { onHit(s.to, now, 'punch', dir, s.power); fx.push({ type: 'burst', x: t.x, y: t.y, start: now, dur: 520, seed: Math.random() * 6 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 520, color: '#ffe27a' }); parts(t.x, t.y, 26, ['#ffe27a', '#e8b730', '#ffffff', '#ff5fa2', '#3fd0c9'], { min: 160, max: 460, gy: 120, dmin: 450, dmax: 800 }); shakeUntil = now + 520; }
@@ -639,12 +654,14 @@ function attack(p, now) {                                                       
     if (now - heat.last > 1200) heat.n = 0;
   }
   if (myT.range !== undefined && me) {                                                      // 근접 무기(황금 장갑): 가까이 있을 때만 쓸 수 있음 (멀면 쿨타임을 쓰지 않고 안내만)
-    const gx = Math.max(0, Math.abs(me.x - p.x) - ((me.bw || 40) + (p.bw || 40)) / 2), gy = p.isBoss ? Math.max(0, (GROUND() - (me.bh || 50)) - (p.cy + p.bh / 2)) : 0;
-    if (Math.hypot(gx, gy) > myT.range * SIZE) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: p.isBoss && gy > 0 ? '너무 높이 있어요!' : '너무 멀어요! 가까이 가서 눌러요', start: now, dur: 1400, color: '#ffd23f' }); return; }
+    const gx = Math.max(0, Math.abs(me.x - p.x) - ((me.bw || 40) + (p.bw || 40)) / 2), gy = p.isBoss || p.isObj ? Math.max(0, (GROUND() - (me.bh || 50)) - (p.cy + p.bh / 2)) : 0;
+    if (Math.hypot(gx, gy) > myT.range * SIZE) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: (p.isBoss || p.isObj) && gy > 0 ? '너무 높이 있어요!' : '너무 멀어요! 가까이 가서 눌러요', start: now, dur: 1400, color: '#ffd23f' }); return; }
   }
   if (useCd.accept('throw', now)) {
     if (myT.burst) { heat.n++; heat.last = now; if (heat.n >= myT.burst) { heat.until = now + myT.overheatMs; heat.n = 0; if (me) { fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: '🔥 과열!!', start: now, dur: 1200, color: '#ff6b4a', size: 16 }); SND.block(); } } }
-    AC.resume(); armedUntil = 0; send(p.isBoss ? { t: 'bthrow', item: myThrow } : { t: 'throw', to: p.id, item: myThrow }); }
+    AC.resume(); armedUntil = 0;
+    if (p.isObj) { if (me) { me.throwAt = now; me.dir = Math.sign(p.x - me.x) || me.dir; spawnShot(myT, myThrow, me, p, now); send(p.isDoll ? { t: 'sthrow', d: p.o.id, item: myThrow } : { t: 'sthrow', k: p.o.k, item: myThrow }); } }       // 뿌셔뿌셔 물건: 내 화면에서 바로 쏘고, 친구들에겐 같이 보이게 알림
+    else send(p.isBoss ? { t: 'bthrow', item: myThrow } : { t: 'throw', to: p.id, item: myThrow }); }
   else if (me && myCd >= 1000) fx.push({ type: 'text', x: me.x, y: GROUND() - (me.bh || 50) - 44, text: `쿨타임 ${((myCd - (now - useCd.last.get('throw'))) / 1000).toFixed(1)}초`, start: now, dur: 900, color: '#8ecbff' });
 }
 let holdAtk = null; const mouse = { x: -1e4, y: -1e4 };
@@ -653,7 +670,7 @@ addEventListener('mouseup', () => { holdAtk = null; }); addEventListener('blur',
 const setHold = (p, now) => { if (myT.kind === 'flame' && !(myT.unlock && Bz.levelInfo(xps[cfg.uid] || 0).lv < myT.unlock)) holdAtk = { p, start: now }; };
 cv.addEventListener('mousedown', (e) => {
   const now = performance.now(); if (e.button === 0 && quizClick(e.offsetX, e.offsetY, now)) return;
-  const p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) return;
+  const p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) { if (e.button === 0 && fxc.smash && smashAt(e.offsetX, e.offsetY, now)) smashHeld = true; return; }
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (p.isBoss) { attack(p, now); setHold(p, now); return; }
   if (e.button === 2) p.infoUntil = now + 4000;                                              // 오른쪽 클릭: 레벨/경험치 카드
@@ -689,7 +706,16 @@ function nameplate(p, top) {                         // SIDEY처럼: [●] (이�
   g.beginPath(); g.arc(x0 + dotR, y + h / 2, dotR, 0, 7); g.fill(); g.stroke();
 }
 let lastBubW = 0, bubOff = 0;
-function bubble(text, cx, bottom, st, tail = true) {                       // 말풍선 하나 그리기 -> 위쪽 y 를 돌려줌(위에 다음 말풍선을 쌓기 위해)
+function spiky(x, y, w, h, pad, sp) {                                      // 삐죽삐죽한 폭발 말풍선 모양
+  const x0 = x - pad, y0 = y - pad, x1 = x + w + pad, y1 = y + h + pad, nx = Math.max(3, Math.round((x1 - x0) / 13)), ny = Math.max(2, Math.round((y1 - y0) / 13)), pts = []; let i = 0;
+  const add = (px, py, ox, oy) => { const o = i++ % 2 ? sp + Math.random() * 2 : 0; pts.push([px + ox * o, py + oy * o]); };
+  for (let k = 0; k < nx; k++) add(x0 + (x1 - x0) * k / nx, y0, 0, -1);
+  for (let k = 0; k < ny; k++) add(x1, y0 + (y1 - y0) * k / ny, 1, 0);
+  for (let k = 0; k < nx; k++) add(x1 - (x1 - x0) * k / nx, y1, 0, 1);
+  for (let k = 0; k < ny; k++) add(x0, y1 - (y1 - y0) * k / ny, -1, 0);
+  g.beginPath(); pts.forEach(([a, b], j) => (j ? g.lineTo(a, b) : g.moveTo(a, b))); g.closePath();
+}
+function bubble(text, cx, bottom, st, tail = true, shout = false) {                       // 말풍선 하나 그리기 -> 위쪽 y 를 돌려줌(위에 다음 말풍선을 쌓기 위해)
   g.font = '13px system-ui, sans-serif';
   const lines = []; let line = '';
   for (const w of text.split(' ')) {
@@ -697,8 +723,9 @@ function bubble(text, cx, bottom, st, tail = true) {                       // �
     if (g.measureText(t).width > 170 && line) { lines.push(line); line = w; } else line = t;
   }
   lines.push(line);
-  const w = Math.max(...lines.map((l) => g.measureText(l).width)) + 16, h = lines.length * 16 + 10;
-  lastBubW = w; const x = Math.min(W - w - 4, Math.max(4, cx + bubOff - w / 2)), y = bottom - h - 8;
+  const w = Math.max(...lines.map((l) => g.measureText(l).width)) + (shout ? 26 : 16), h = lines.length * 16 + (shout ? 16 : 10);
+  lastBubW = w; const x = Math.min(W - w - 4, Math.max(4, cx + bubOff - w / 2)), y = bottom - h - (shout ? 14 : 8);
+  if (shout) { g.save(); g.translate(Math.random() * 5 - 2.5, Math.random() * 4 - 2); g.fillStyle = '#fff7c2'; g.strokeStyle = '#e5242b'; g.lineWidth = 2.5; spiky(x, y, w, h, 3, 7); g.fill(); g.stroke(); g.fillStyle = '#c1121f'; g.textAlign = 'left'; g.font = '800 13px system-ui, sans-serif'; lines.forEach((l, i) => g.fillText(l, x + 13, y + 22 + i * 16)); g.restore(); return y - 8; }
   g.fillStyle = st.bg; g.strokeStyle = st.border; g.lineWidth = 2;
   g.beginPath(); g.roundRect(x, y, w, h, 8); g.fill(); g.stroke();
   if (tail) { g.beginPath(); { const tx = Math.min(x + w - 12, Math.max(x + 12, cx)); g.moveTo(tx - 5, y + h); g.lineTo(tx, y + h + 7); g.lineTo(tx + 5, y + h); } g.fill(); }
@@ -709,7 +736,7 @@ function bubble(text, cx, bottom, st, tail = true) {                       // �
 function bubbles(list, cx, bottom, off = 0) {
   bubOff = off;                                       // 최신 말풍선이 캐릭터 가장 가까이, 이전 것은 그 위로 쌓음 (꼬리는 최신 것만)
   let b = bottom, mw = 0;
-  for (let i = list.length - 1; i >= 0; i--) { const it = list[i], newest = i === list.length - 1; g.globalAlpha = it.alpha * (newest ? 1 : 0.9); b = bubble(it.text, cx, b, it.style, newest) + 4; mw = Math.max(mw, lastBubW); }
+  for (let i = list.length - 1; i >= 0; i--) { const it = list[i], newest = i === list.length - 1; g.globalAlpha = it.alpha * (newest ? 1 : 0.9); b = bubble(it.text, cx, b, it.style, newest, !!it.shout) + 4; mw = Math.max(mw, lastBubW); }
   g.globalAlpha = 1; bubOff = 0; return { w: mw, top: b, bottom };
 }
 function typingDots(cx, bottom, now) {               // 입력 중: 점 세 개가 통통
@@ -729,12 +756,125 @@ function motionOf(p, now) {                          // 지금 어떤 모션인�
 const visW = (p) => Math.min(190, Math.max(p.bw || 40, p.nameW || 0, p.bubW || 0));   // 겹침 판단 폭: 몸/이름표/말풍선 중 가장 넓은 것
 const frozen = (p, now) => p.state !== 'online' || p.stunUntil > now || now - p.hitAt < IA.HIT_MS || now - p.throwAt < 390;
 
-if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; }, get boss() { return boss; }, bossProxy, get xps() { return xps; }, get quiz() { return quiz; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
+if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; }, get boss() { return boss; }, bossProxy, get xps() { return xps; }, get quiz() { return quiz; }, get smash() { return { objs: sobjs, fxc, broken: [...sBroken], dolls }; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
 let last = performance.now(), lastPos = 0, sentWalk = false, lastRegions = 0, lastRegionKey = '', lastRegionSend = 0;
+// ---- 뿌셔뿌셔 존 (방장이 켜면 물건이 떨어져 쌓이고, 클릭/드래그하면 재질에 맞게 부서짐) + 외침 단어 ----
+let fxc = { smash: false, density: 2, t0: 0, words: [] }; const sobjs = [], sBroken = new Set(); let sNextK = null, combo = { n: 0, at: 0 }, smashHeld = false;
+const isShout = (text) => { const t = String(text || '').toLowerCase(); return fxc.words.some((w) => w && t.includes(String(w).toLowerCase())); };
+function setFx(m, live, now) {
+  const was = fxc.smash, t0 = fxc.t0; fxc = { smash: !!(m && m.smash), density: (m && m.density) || 2, t0: (m && m.t0) || 0, words: Array.isArray(m && m.words) ? m.words : [] };
+  if (fxc.t0 !== t0 || !fxc.smash) { sNextK = null; sBroken.clear(); }
+  syncDolls(m && fxc.smash ? m.dolls : [], live, now);
+  if (!fxc.smash) { if (sobjs.length) { for (const o of sobjs) parts(o.x, o.y, 4, ['#ffffff', '#cfd4e4'], { min: 20, max: 90, gy: 100, size: 3 }); sobjs.length = 0; } }
+  if (live && fxc.smash && !was) banner(`💥 뿌셔뿌셔 존이 열렸어요! 무기로 쏴서 부숴 보세요 (대포·폭탄은 주변까지!)${dolls.length ? ' · 상사 인형도 나타났어요 😈' : ''}`, '#ffd23f', now, 6000);
+  if (live && !fxc.smash && was) banner('뿌셔뿌셔 존이 닫혔어요', '#cfd4e4', now, 3500);
+}
+function updateSmash(now, dt) {
+  if (!fxc.smash || !myId) return;
+  const sNow = serverNow(), kNow = Smash.indexAt(sNow, fxc.t0, fxc.density); if (sNextK == null) sNextK = Math.max(0, kNow);
+  for (let n = 0; sNextK <= kNow && n < 3; n++, sNextK++) if (!sBroken.has(sNextK)) sobjs.push(Smash.make(sNextK, fxc.t0, W, now));
+  Smash.step(sobjs, dt, W, GROUND()); Smash.trim(sobjs, now);
+}
+function drawSmash(now) { for (const o of sobjs) { const a = Smash.alphaOf(o, now); if (a < 1) g.globalAlpha = a; Smash.draw(g, o, o === smashHover); g.globalAlpha = 1; } }
+let smashHover = null;
+
+// ---- 상사 봉제인형 (남자상사/여자상사): 체력 50, 서버가 체력을 관리, 1초마다 다른 대사 ----
+const dolls = [], dollImgs = {}; for (const id of ['m', 'f']) { const im = new Image(); im.src = '../shared/' + Dolls.META[id].img; dollImgs[id] = im; }
+function syncDolls(list, live, now) {
+  const old = new Map(dolls.map((d) => [d.id, d])); dolls.length = 0;
+  for (const x of list || []) {
+    if (x.hp <= 0) continue; const M = Dolls.META[x.id], im = dollImgs[x.id]; if (!M) continue;
+    const o = old.get(x.id) || { id: x.id, hitAt: -1e9, landed: !live, born: fxc.t0, x: 0, y: 0, h: M.h, w: 0 }; o.hp = x.hp; o.xf = x.x; dolls.push(o);
+  }
+}
+const dollTgt = (d) => d.tgt || (d.tgt = { isObj: true, isDoll: true, o: d, id: 'doll' + d.id, state: 'online', look: 0, get x() { return d.x; }, get cy() { return d.y; }, get bw() { return d.w; }, get bh() { return d.h; } });
+function updateDolls(now) {
+  const sNow = serverNow();
+  for (const d of dolls) {
+    const im = dollImgs[d.id]; d.w = im.naturalWidth ? d.h * im.naturalWidth / im.naturalHeight : d.h * 0.6;
+    d.x = Math.min(W - d.w / 2 - 4, Math.max(d.w / 2 + 4, d.xf * W)); const td = (sNow - d.born) / 1000;
+    d.drop = td < 0.8 ? -(H + 40) * Math.pow(1 - Math.max(0, td) / 0.8, 2) : 0;                 // 켜지면 하늘에서 쿵 떨어짐
+    d.y = GROUND() - d.h / 2 + 6 + d.drop;
+    if (!d.landed && td >= 0.8) { d.landed = true; fx.push({ type: 'ring', x: d.x, y: GROUND() - 4, start: now, dur: 380, color: '#cfd4e4', r: 80 }); parts(d.x, GROUND() - 6, 12, ['#ffffff', '#cfd4e4'], { angle: -Math.PI / 2, spread: 1.4, min: 50, max: 180, gy: 200, size: 4 }); shakeUntil = Math.max(shakeUntil, now + 200); if (!quiet) SND.sm_plush(); }
+  }
+}
+function drawDolls(now) {
+  const sNow = serverNow(), sec = Math.floor(sNow / 1000);
+  for (const d of dolls) {
+    const im = dollImgs[d.id], M = Dolls.META[d.id]; if (!im.complete || !im.naturalWidth) continue;
+    const hit = Math.max(0, 1 - (now - d.hitAt) / 420), ang = Math.sin((now - d.hitAt) / 38) * 0.16 * hit * hit * (d.hitDir || 1), sq = 1 - 0.07 * hit;
+    g.save(); g.translate(d.x, d.y + d.h / 2); g.rotate(ang); g.scale(1 + 0.05 * hit, sq); if (hit > 0.6) g.filter = 'brightness(1.8)';
+    g.drawImage(im, -d.w / 2, -d.h, d.w, d.h); g.restore(); g.filter = 'none';
+    if (d.drop < -20) continue;
+    const top = d.y - d.h / 2 - 8 + (d.drop || 0) * 0;                                           // 머리 위: 체력바 + 이름, 그 위에 말풍선
+    const bw = 74, bx = d.x - bw / 2, by = top - 14;
+    g.fillStyle = 'rgba(20,20,40,.75)'; g.beginPath(); g.roundRect(bx - 2, by - 2, bw + 4, 12, 5); g.fill();
+    g.fillStyle = d.hp > 25 ? '#4cd964' : d.hp > 12 ? '#ffd23f' : '#ff5d5d'; g.beginPath(); g.roundRect(bx, by, bw * d.hp / Dolls.HP, 8, 4); g.fill();
+    g.font = '700 10px system-ui, sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(20,20,40,.9)'; g.strokeText(`${M.name} ${d.hp}/${Dolls.HP}`, d.x, by - 5); g.fillStyle = '#fff'; g.fillText(`${M.name} ${d.hp}/${Dolls.HP}`, d.x, by - 5);
+    if (!quiet) bubble(Dolls.lineAt(d.id, fxc.t0, sec), d.x, by - 16, M.style, true);
+  }
+}
+function dollHp(m, now) {                                                             // 서버가 알려 준 체력 (내가 때린 것, 친구가 때린 것 모두)
+  const d = dolls.find((q) => q.id === m.d); if (!d) return; const M = Dolls.META[d.id];
+  d.hp = m.hp; d.hitAt = now; d.hitDir = Math.random() < 0.5 ? -1 : 1;
+  fx.push({ type: 'text', x: d.x + rnd(-14, 14), y: d.y - d.h / 2 - 34, text: `-${m.dmg}`, start: now, dur: 800, color: '#ffd23f', size: 16 });
+  parts(d.x + rnd(-14, 14), d.y - d.h * 0.1, 7, M.cotton, { min: 60, max: 200, up: 90, gy: 420, size: 5, dmin: 350, dmax: 700 });                // 솜이 뽀송 튀어나옴
+  if (!quiet && !m.mute) SND.sm_plush();
+  if (m.hp <= 0) {
+    parts(d.x, d.y, 46, M.cotton, { min: 90, max: 420, up: 160, gy: 500, size: 7, dmin: 600, dmax: 1300 });
+    fx.push({ type: 'ring', x: d.x, y: d.y, start: now, dur: 520, color: '#fff6e0', r: 130 }); shakeUntil = Math.max(shakeUntil, now + 350);
+    const by = peers.get(m.by); banner(`🧸 ${M.name} 인형이 해체됐어요!${by ? ` (마지막 한 방: ${by.name})` : ''}`, '#ffd23f', now, 5000);
+    dolls.splice(dolls.indexOf(d), 1);
+  }
+}
+function dollHits(s, t, R, skip) {                                                    // 맞은 자리(t) 반경 R 안의 상사 인형들에게 줄 피해 (쏜 사람 화면에서만 정해서 서버에 알림)
+  const base = ((s.T && s.T.dmg) || 1) + Bz.dmgBonus(Bz.levelInfo(xps[cfg.uid] || 0).lv), hits = [];
+  for (const d of dolls) if (d !== skip && d.hp > 0 && Math.hypot(d.x - t.x, d.y - t.y) <= R + d.h / 2) hits.push({ d: d.id, dmg: base });
+  return hits;
+}
+function dollResolve(s, t, now) {
+  const d0 = s.to.o; if (!s.fromMe) return; const R = SPLASH[s.kind] || 0, hits = [];
+  if (d0.hp > 0) hits.push({ d: d0.id, dmg: ((s.T && s.T.dmg) || 1) + Bz.dmgBonus(Bz.levelInfo(xps[cfg.uid] || 0).lv) });
+  if (R) hits.push(...dollHits(s, t, R, d0));
+  if (hits.length) send({ t: 'dhit', hits: hits.slice(0, 2) });
+  if (R) splashObjects(s, t, now, R, null);                                      // 터지는 무기는 인형 옆 물건도 같이 부숨
+}
+const objTgt = (o) => o.tgt || (o.tgt = { isObj: true, o, id: 'obj' + o.k, state: 'online', look: 0, get x() { return o.x; }, get cy() { return o.y; }, get bw() { return 2 * o.r; }, get bh() { return 2 * o.r; } });
+const SPLASH = { bomb: 130, cannon: 210, missile: 90, punch: 90, slash: 75 };      // 터지는 무기는 주변 물건도 같이 부숨 (반경 px)
+function splashObjects(s, t, now, R, o0) {                                         // 터진 자리 주변 물건들 (o0 은 직접 맞은 물건)
+  const hit = []; if (o0 && sobjs.includes(o0)) hit.push(o0);
+  if (R) for (const o of sobjs) if (o !== o0 && Math.hypot(o.x - t.x, o.y - t.y) <= R + o.r) hit.push(o);
+  if (!hit.length) return;
+  send({ t: 'smash', k: hit.map((o) => o.k).slice(0, 40) });
+  hit.forEach((o) => { sBroken.add(o.k); const d = o === o0 ? 0 : Math.hypot(o.x - t.x, o.y - t.y) * 1.1; if (d) setTimeout(() => { if (sobjs.includes(o)) breakObj(o, performance.now(), true); }, d); else breakObj(o, now, true); });   // 폭발이 퍼지듯 먼 것일수록 조금 늦게 터짐
+}
+function smashResolve(s, t, now) {                                                  // 무기가 물건/인형에 맞은 순간 (쏜 사람 화면에서만 부술 것을 정하고, 친구들에게 알림)
+  if (!s.fromMe) return; if (s.to.isDoll) return dollResolve(s, t, now);
+  const R = SPLASH[s.kind] || 0; splashObjects(s, t, now, R, s.to.o);
+  if (R) { const hits = dollHits(s, t, R, null); if (hits.length) send({ t: 'dhit', hits: hits.slice(0, 2) }); }      // 폭발 근처의 상사 인형도 같이 맞음
+}
+function breakObj(o, now, mine) {
+  const i = sobjs.indexOf(o); if (i >= 0) sobjs.splice(i, 1); const M = Smash.MATS[o.mat];
+  const cols = o.mat === 'balloon' ? [o.hue, '#ffffff'] : M.colors, big = o.mat === 'melon' || o.mat === 'wood';
+  parts(o.x, o.y, o.mat === 'balloon' ? 8 : 16, cols, { min: 70, max: o.mat === 'balloon' ? 160 : 300, up: 120, gy: 700, size: o.mat === 'melon' ? 7 : 5, dmin: 350, dmax: 750 });
+  fx.push({ type: 'ring', x: o.x, y: o.y, start: now, dur: 260, color: o.mat === 'balloon' ? o.hue : '#ffffff', r: o.r * 2.2 });
+  if (big) shakeUntil = Math.max(shakeUntil, now + 90);
+  if (!quiet) SND['sm_' + o.mat]();
+  if (mine) {
+    combo = now - combo.at < 1400 ? { n: combo.n + 1, at: now } : { n: 1, at: now };
+    if (combo.n >= 3) fx.push({ type: 'text', x: o.x, y: o.y - o.r - 12, text: `💥 ${combo.n} COMBO!`, start: now, dur: 800, color: combo.n >= 10 ? '#ff6b4a' : '#ffd23f', size: Math.min(26, 14 + combo.n) });
+  }
+}
+const dollAt = (x, y) => dolls.find((d) => d.hp > 0 && d.drop > -20 && Math.abs(x - d.x) < d.w / 2 && Math.abs(y - d.y) < d.h / 2);
+function smashAt(x, y, now) { const o = Smash.hit(sobjs, x, y), d = o ? null : dollAt(x, y); if (!o && !d) return false; if (throwOn(now)) attack(d ? dollTgt(d) : objTgt(o), now); return true; }       // 클릭 = 지금 고른 무기로 그 물건을 쏨
+cv.addEventListener('mousemove', (e) => { if (!fxc.smash) { smashHover = null; return; } smashHover = Smash.hit(sobjs, e.offsetX, e.offsetY); const dh = smashHover ? null : dollAt(e.offsetX, e.offsetY); if (smashHeld && (smashHover || dh) && throwOn(performance.now())) attack(dh ? dollTgt(dh) : objTgt(smashHover), performance.now()); });
+addEventListener('mouseup', () => { smashHeld = false; });
+
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   g.clearRect(0, 0, W, H); g.save();
   if (now < shakeUntil) g.translate(rnd(-4, 4), rnd(-3, 3));                  // 폭발할 때 화면이 살짝 흔들림
+  updateSmash(now, dt); updateDolls(now); drawDolls(now); drawSmash(now);                                      // 뿌셔뿌셔 존 물건은 캐릭터 뒤에 그림
 
   for (const p of peers.values()) {
     if (p.state === 'offline') continue;
@@ -831,6 +971,8 @@ function frame(now) {
       const w = (p.bw || width(p.look) * SIZE) + 8, h = (p.bh || height(p.look) * SIZE) + 4; rects.push({ x: Math.round(p.x - w / 2), y: Math.round(GROUND() - h + 2), w: Math.round(w), h: Math.round(h) });
     }
     if (boss && !boss.dead && myId && throwOn(now)) rects.push({ x: Math.round(bossProxy.x - bossProxy.bw / 2 - 4), y: Math.round(bossProxy.cy - bossProxy.bh / 2 - 4), w: Math.round(bossProxy.bw + 8), h: Math.round(bossProxy.bh + 8) });   // 보스도 클릭 가능 영역
+    if (fxc.smash) for (const o of sobjs) if (o.y > -o.r) rects.push({ x: Math.round(o.x - o.r - 4), y: Math.round(o.y - o.r - 4), w: Math.round(2 * o.r + 8), h: Math.round(2 * o.r + 8) });   // 부술 수 있는 물건도 클릭 가능 영역
+    if (fxc.smash) for (const d of dolls) if (d.hp > 0 && d.drop > -20) rects.push({ x: Math.round(d.x - d.w / 2), y: Math.round(d.y - d.h / 2), w: Math.round(d.w), h: Math.round(d.h) });
     if (quizBounds) rects.push({ x: Math.round(quizBounds.x), y: Math.round(quizBounds.y), w: Math.round(quizBounds.w), h: Math.round(quizBounds.h) });   // 퀴즈 카드도 클릭 가능 영역
     const key = JSON.stringify(rects); if (key !== lastRegionKey || now - lastRegionSend > 1000) { lastRegionKey = key; lastRegionSend = now; window.api.setRegions(rects); }   // 바뀌었거나 1초마다 다시 보냄(혹시 놓쳐도 복구)
   }

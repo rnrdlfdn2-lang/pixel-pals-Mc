@@ -130,7 +130,7 @@ async function refreshGroups() {
   try {
     list = await rpc('list');
     if (list.length && !list.some((g) => g.code === st.activeCode)) await setActive(list[0].code);   // 내 그룹이 아니면 첫 그룹으로 (목록이 비었을 땐 건드리지 않음: 서버 데이터가 사라진 경우 현재 그룹을 지키려고)
-    api.pushGroups(list.map((g) => ({ code: g.code, name: g.name, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look, owner: m.owner })), boss: g.boss ? { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin } : undefined, quiz: g.quiz ? { on: !!g.quiz.on, everyMin: g.quiz.everyMin } : undefined })));
+    api.pushGroups(list.map((g) => ({ code: g.code, name: g.name, members: g.members.map((m) => ({ uid: m.uid, name: m.name, look: m.look, owner: m.owner })), boss: g.boss ? { on: !!g.boss.on, everyMin: g.boss.everyMin, lastsMin: g.boss.lastsMin } : undefined, quiz: g.quiz ? { on: !!g.quiz.on, everyMin: g.quiz.everyMin } : undefined, fx: g.fx ? { smash: !!g.fx.smash, density: g.fx.density, words: g.fx.words } : undefined })));
     renderGroups();
   } catch (e) { $('#list').replaceChildren(el('p', { class: 'sub', text: e.message })); }
 }
@@ -145,6 +145,27 @@ const fmtMin = (n) => (n >= 60 && n % 60 === 0 ? `${n / 60}시간` : `${n}분`);
 function bossSelect(values, cur, onChange) {
   const vals = values.includes(cur) ? values : [...values, cur].sort((a, b) => a - b), sel = el('select', {}, vals.map((v) => el('option', { value: v, text: fmtMin(v) })));
   sel.value = String(cur); sel.addEventListener('change', () => onChange(Number(sel.value))); return sel;
+}
+function fxPanel(g) {                                                                // 뿌셔뿌셔 존 + 외침 단어: 방장이 바꾸면 접속 중인 모두에게 바로 적용
+  const f = g.fx || { smash: false, density: 2, words: [] }, box = el('div', { class: 'bosspanel' }, el('div', { class: 'bt', text: '💥 뿌셔뿌셔 존 · 외침 단어' }));
+  const DENS = ['', '한가롭게', '보통', '북적북적'];
+  const chips = el('div', { class: 'chips' });
+  const drawChips = (words, edit) => chips.replaceChildren(...(words.length ? words.map((w) => el('span', { class: 'chip' }, w, edit ? el('button', { class: 'x', text: '×', title: '지우기', onclick: () => save({ words: words.filter((x) => x !== w) }) }) : '')) : [el('span', { class: 'note', text: '정해 둔 단어가 없어요' })]));
+  const save = (patch) => act(async () => { await rpc('fxcfg', { code: g.code, ...patch }); await refreshGroups(); }, '바꿨어요 (접속 중인 그룹원 모두에게 바로 적용)');
+  if (g.owner) {
+    const cb = el('input', { type: 'checkbox' }); cb.checked = !!f.smash; cb.addEventListener('change', () => save({ smash: cb.checked }));
+    const sel = el('select', {}, [1, 2, 3].map((v) => el('option', { value: v, text: DENS[v] }))); sel.value = String(f.density); sel.addEventListener('change', () => save({ density: Number(sel.value) }));
+    box.append(el('div', { class: 'ctl' }, el('label', {}, cb, el('span', { text: '뿌셔뿌셔 존' })), el('label', {}, el('span', { text: '떨어지는 양' }), sel)));
+    const inp = el('input', { type: 'text', maxlength: 12, placeholder: '예: 월요일, 야근, 아악 (12자까지)' }); inp.style.cssText = 'height:30px;border:1px solid #d6d9e2;border-radius:5px;padding:0 8px;min-width:200px';
+    const add = () => { const v = inp.value.trim(); if (!v) return; inp.value = ''; if (!f.words.includes(v)) save({ words: [...f.words, v] }); };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    box.append(el('div', { class: 'stat', text: '외침 단어 (이 단어가 들어간 채팅은 삐죽삐죽 흔들리는 말풍선으로 보여요)' }), el('div', { class: 'ctl' }, inp, el('button', { class: 'b', text: '추가', onclick: add })), chips);
+    drawChips(f.words, true);
+  } else {
+    box.append(el('div', { class: 'stat', text: `방장 설정: 뿌셔뿌셔 존 ${f.smash ? '켜짐 · ' + DENS[f.density] : '꺼짐'}` }), el('div', { class: 'stat', text: '외침 단어 (채팅에 넣으면 삐죽삐죽 흔들리는 말풍선):' }), chips); drawChips(f.words, false);
+  }
+  box.append(el('div', { class: 'note', text: '지금 고른 무기로 떨어진 물건을 클릭하면 쏴서 부술 수 있어요. (누른 채로 훑으면 연사) 폭탄·대포·매직미사일·장갑·칼은 주변 물건까지 같이 부숴요. 재질마다 소리가 달라요. 켜면 👔 남자상사 · 여자상사 봉제인형이 1~2개 나타나요! (체력 50, 친구들이 같이 때려서 해체) (유리병·접시·나무상자·택배상자·풍선·깡통·수박)' }));
+  return box;
 }
 function quizPanel(g) {                                                              // 랜덤퀴즈: 방장은 켜기/끄기 + 주기, 모두에게 같이 적용
   const q = g.quiz || { on: false, everyMin: 60 }, box = el('div', { class: 'bosspanel' }, el('div', { class: 'bt', text: '🧠 랜덤퀴즈' }));
@@ -204,7 +225,7 @@ function groupCard(g) {
       el('button', { class: 'b', text: '이름 변경', onclick: () => { renaming = g.code; renderGroups(); } }),
       el('button', { class: 'b danger', text: '그룹 삭제', onclick: () => confirm(`'${g.name}' 그룹을 삭제할까요?\n되돌릴 수 없어요.`) && act(async () => { await rpc('delete', { code: g.code }); api.forgetGroup(g.code); await refreshGroups(); }, '그룹을 삭제했어요') }));
   }
-  card.append(el('div', { class: 'gbody' }, members, bossPanel(g), quizPanel(g), foot));
+  card.append(el('div', { class: 'gbody' }, members, bossPanel(g), quizPanel(g), fxPanel(g), foot));
   return card;
 }
 
