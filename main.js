@@ -21,6 +21,13 @@ const DEFAULT_SC = { overlay: 'Ctrl+Alt+H', composer: base.shortcut || 'Ctrl+Alt
 let SC = { ...DEFAULT_SC };                 // 지금 쓰는 단축키 (설정에서 바꾼 값이 기본값 위에 덮임)
 const SC_LABEL = { overlay: '픽셀 월드 숨기기/보이기', composer: '채팅창 열기', quiet: '조용히 모드', history: '최근 기록 창' };
 
+// 종료할 때 창이 먼저 사라진 뒤 타이머가 한 번 더 돌아서 "Object has been destroyed" 오류창이 뜨던 문제 방지:
+// 모든 타이머를 기록해 뒀다가 종료 시작 때 전부 멈추고, 종료 중에 나는 오류는 조용히 무시한다.
+let quitting = false; const _timers = new Set(); const _si = global.setInterval;
+global.setInterval = (...a) => { const t = _si(...a); _timers.add(t); return t; };
+app.on('before-quit', () => { quitting = true; for (const t of _timers) clearInterval(t); _timers.clear(); });
+process.on('uncaughtException', (e) => { if (quitting || /Object has been destroyed/.test(String(e && e.message))) return; console.error(e); });
+
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => openSettings());
 
@@ -155,7 +162,7 @@ const cursorPoint = () => {
 };
 function resetClickThrough() { regions = []; captured = false; if (win) win.setIgnoreMouseEvents(true, { forward: true }); }
 function pollCursor() {
-  if (!win || !win.isVisible()) return;
+  if (quitting || !win || win.isDestroyed() || !win.isVisible()) return;
   const p = cursorPoint(), b = win.getBounds(), x = p.x - b.x, y = p.y - b.y;
   const inside = regions.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
   if (inside !== captured) { captured = inside; win.setIgnoreMouseEvents(!inside, { forward: true }); }
@@ -370,7 +377,7 @@ app.whenReady().then(() => {
 
   setInterval(() => {                                   // 입력이 없으면 자리 비움 -> 졸기 모션
     const a = powerMonitor.getSystemIdleTime() >= AWAY_SECONDS;
-    if (a !== away) { away = a; if (win) win.webContents.send('presence', a ? 'away' : 'online'); }
+    if (a !== away) { away = a; if (win && !win.isDestroyed()) win.webContents.send('presence', a ? 'away' : 'online'); }
   }, 3000);
 
   registerShortcuts(true);
