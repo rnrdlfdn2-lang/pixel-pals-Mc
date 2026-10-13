@@ -155,7 +155,7 @@ function quizPanel(g) {                                                         
     const go = el('button', { class: 'b', text: '지금 시작', onclick: () => act(async () => { await rpc('quiznow', { code: g.code }); await refreshGroups(); }, '퀴즈 공지를 띄웠어요!') }); if (!q.on || q.active) go.disabled = true;
     box.append(el('div', { class: 'ctl' }, el('label', {}, cb, el('span', { text: '랜덤퀴즈' })), el('label', {}, el('span', { text: '출제 주기' }), bossSelect(BOSS_EVERY, q.everyMin, (v) => save({ everyMin: v })), el('span', { text: '마다' })), go));
   } else box.append(el('div', { class: 'stat', text: `방장 설정: ${q.on ? '켜짐' : '꺼짐'} · ${fmtMin(q.everyMin)}마다 출제` }));
-  box.append(el('div', { class: 'note', text: '공지가 뜨면 1분 안에 수락/거절! 수락한 사람끼리 1문제를 풀고, 맞히면 경험치 +10을 받아요. (주제는 시계/게임/애니 중 무작위)' }));
+  box.append(el('div', { class: 'note', text: '공지가 뜨면 1분 안에 수락/거절! 수락한 사람끼리 1문제를 풀고, 맞히면 경험치 +10을 받아요. (주제는 참여자 투표 비율대로 뽑혀요: 상식·K-POP·영화·역사·밈·넌센스·시계·게임·애니)' }));
   return box;
 }
 function bossPanel(g) {                                                              // 방장: 켜기/끄기, 출현 주기, 머무는 시간 / 모두: 내 레벨, 지금 상태

@@ -448,12 +448,14 @@ const QFONT = 'system-ui, "Malgun Gothic", sans-serif', CIRC = ['①', '②', '�
 function wrapLines(text, maxW, font) { g.font = font; const out = []; let cur = ''; for (const ch of String(text)) { if (g.measureText(cur + ch).width > maxW && cur) { out.push(cur); cur = ch.trim() ? ch : ''; } else cur += ch; } if (cur) out.push(cur); return out; }
 function quizBanner(text, color, now) { banner(text, color || '#8ecbff', now, 6000); }
 function quizMsg(m, now) {
-  if (m.t === 'quiz') { syncClock(m.now); quiz = { phase: 'invite', id: m.id, topicName: m.topicName, n: m.n, until: m.until, yes: 0, no: 0, total: 0, mine: null }; quizBanner(`🧠 랜덤퀴즈가 시작돼요! 주제: ${m.topicName} (1분 안에 수락/거절을 눌러 주세요)`, '#c9b8ff', now); if (!quiet) SND.quiz(); return; }
+  if (m.t === 'quiz') { syncClock(m.now); quiz = { phase: 'invite', id: m.id, topics: m.topics || [], n: m.n, until: m.until, yes: 0, no: 0, total: 0, mine: null, vote: null, tally: {} }; quizBanner(`🧠 랜덤퀴즈가 시작돼요! 주제에 투표하고 수락해 주세요 (1분)`, '#c9b8ff', now); if (!quiet) SND.quiz(); return; }
   if (!quiz || quiz.id !== m.id) { if (m.t === 'qend') quiz = null; return; }
-  if (m.t === 'qprog') { quiz.yes = m.yes; quiz.no = m.no; quiz.total = m.total; }
+  if (m.t === 'qprog') { quiz.yes = m.yes; quiz.no = m.no; quiz.total = m.total; quiz.tally = m.tally || {}; }
   else if (m.t === 'qstart') {
     quiz.joined = m.players.some((p) => p.uid === cfg.uid); quiz.players = m.players;
-    quizBanner(`🧠 퀴즈 시작! 참가자: ${m.players.map((p) => p.name).join(', ')}`, '#c9b8ff', now);
+    const pc = m.pct && m.pct[m.topic] ? ` (${m.pct[m.topic]}%)` : '';
+    quizBanner(`🧠 투표로 주제가 정해졌어요: ${m.topicName}${pc} · 참가자: ${m.players.map((p) => p.name).join(', ')}`, '#c9b8ff', now);
+    quiz.topicName = m.topicName;
     if (!quiz.joined) quiz = null; else quiz.phase = 'wait';
   } else if (m.t === 'qq') { syncClock(m.now); Object.assign(quiz, { phase: 'ask', i: m.i, n: m.n, text: m.text, choices: m.choices, until: m.until, myAns: null, answered: 0, atotal: quiz.players ? quiz.players.length : 0, right: null }); if (!quiet) SND.quiz(); }
   else if (m.t === 'qa') { quiz.answered = m.answered; quiz.atotal = m.total; }
@@ -491,14 +493,20 @@ function drawQuiz(now) {
   if (quiz.phase === 'board' && now > quiz.boardUntil) { quiz = null; return; }
   const left = (u) => Math.max(0, Math.ceil((u - sNow) / 1000));
   if (quiz.phase === 'invite') {
-    const w = Math.min(440, W - 24), h = 190, x = (W - w) / 2, y = 56; quizCard(x, y, w, h, '#c9b8ff');
-    g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = `800 21px ${QFONT}`; g.fillText('🧠 랜덤퀴즈 도전!', x + w / 2, y + 36);
-    g.font = `600 14px ${QFONT}`; g.fillStyle = '#cfd4e4'; g.fillText(`주제: ${quiz.topicName}  ·  ${quiz.n}문제  ·  정답이면 EXP +10`, x + w / 2, y + 62);
-    g.fillStyle = '#ffd23f'; g.fillText(`남은 시간 ${left(quiz.until)}초  ·  수락 ${quiz.yes} / 거절 ${quiz.no}${quiz.total ? ` (접속 ${quiz.total}명)` : ''}`, x + w / 2, y + 86);
+    const w = Math.min(460, W - 24), x = (W - w) / 2, y = 56, tp = quiz.topics, rows = Math.ceil(tp.length / 3), h = 184 + rows * 40; quizCard(x, y, w, h, '#c9b8ff');
+    g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = `800 21px ${QFONT}`; g.fillText('🧠 랜덤퀴즈 도전!', x + w / 2, y + 34);
+    g.font = `600 13px ${QFONT}`; g.fillStyle = '#cfd4e4'; g.fillText(`${quiz.n}문제  ·  정답이면 EXP +10  ·  투표가 많은 주제가 더 잘 뽑혀요`, x + w / 2, y + 56);
+    const cw = (w - 40 - 16) / 3, tot = Object.values(quiz.tally).reduce((a2, b2) => a2 + b2, 0);
+    tp.forEach((t, k) => {
+      const cx = x + 20 + (k % 3) * (cw + 8), cy = y + 70 + Math.floor(k / 3) * 40, n = quiz.tally[t.id] || 0, mine = quiz.vote === t.id;
+      quizBtn(cx, cy, cw, 34, `${t.emoji} ${t.name}${n ? ` ${n}` : ''}`, { act: 'vote', arg: t.id, sel: mine, fill: mine ? '#4a4380' : undefined, border: mine ? '#ffd23f' : undefined, size: 13 }, now);
+    });
+    const by = y + 74 + rows * 40;
+    g.font = `700 13px ${QFONT}`; g.textAlign = 'center'; g.fillStyle = '#ffd23f'; g.fillText(`남은 시간 ${left(quiz.until)}초  ·  수락 ${quiz.yes} / 거절 ${quiz.no}${quiz.total ? ` (접속 ${quiz.total}명)` : ''}`, x + w / 2, by + 6);
     const bw = (w - 60) / 2;
-    quizBtn(x + 20, y + 104, bw, 46, '⭕ 수락', { act: 'yes', fill: quiz.mine === true ? '#2e7d4f' : '#24402f', border: quiz.mine === true ? '#8dffb0' : '#4cd964', sel: quiz.mine === true }, now);
-    quizBtn(x + 40 + bw, y + 104, bw, 46, '❌ 거절', { act: 'no', fill: quiz.mine === false ? '#8a3a3a' : '#432626', border: quiz.mine === false ? '#ff9a9a' : '#ff6b6b', sel: quiz.mine === false }, now);
-    g.font = `500 12px ${QFONT}`; g.fillStyle = '#9ea3c8'; g.fillText(quiz.mine === null ? '전원이 고르거나 1분이 지나면 시작해요 (고르지 않으면 불참)' : quiz.mine ? '✅ 수락했어요 · 바꿀 수 있어요 · 곧 시작해요' : '거절했어요 · 바꿀 수 있어요', x + w / 2, y + 174);
+    quizBtn(x + 20, by + 18, bw, 42, '⭕ 수락', { act: 'yes', fill: quiz.mine === true ? '#2e7d4f' : '#24402f', border: quiz.mine === true ? '#8dffb0' : '#4cd964', sel: quiz.mine === true }, now);
+    quizBtn(x + 40 + bw, by + 18, bw, 42, '❌ 거절', { act: 'no', fill: quiz.mine === false ? '#8a3a3a' : '#432626', border: quiz.mine === false ? '#ff9a9a' : '#ff6b6b', sel: quiz.mine === false }, now);
+    g.font = `500 12px ${QFONT}`; g.fillStyle = '#9ea3c8'; g.fillText(quiz.mine === null ? '주제를 누르면 투표 + 수락돼요 · 안 고르면 불참' : quiz.mine ? (quiz.vote ? '✅ 투표하고 수락했어요 · 바꿀 수 있어요' : '✅ 수락했어요 (주제는 아무거나) · 주제를 눌러 투표해요') : '거절했어요 · 바꿀 수 있어요', x + w / 2, by + 78);
     return;
   }
   if (quiz.phase === 'wait') { const w = 300, h = 54, x = (W - w) / 2, y = 56; quizCard(x, y, w, h); g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = `700 16px ${QFONT}`; g.fillText('🧠 첫 문제를 준비하고 있어요…', x + w / 2, y + 33); return; }
@@ -531,7 +539,8 @@ function drawQuiz(now) {
 function quizClick(x, y, now) {                                                                // 카드 위 클릭이면 처리하고 true (캐릭터/보스 클릭으로 넘어가지 않게)
   if (!quiz || !quizBounds) return false;
   for (const r of quizRects) if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
-    if (r.act === 'yes' || r.act === 'no') { quiz.mine = r.act === 'yes'; send({ t: 'qjoin', id: quiz.id, yes: quiz.mine }); }
+    if (r.act === 'vote') { quiz.vote = r.arg; quiz.mine = true; send({ t: 'qjoin', id: quiz.id, yes: true, topic: r.arg }); }
+    else if (r.act === 'yes' || r.act === 'no') { quiz.mine = r.act === 'yes'; if (!quiz.mine) quiz.vote = null; send({ t: 'qjoin', id: quiz.id, yes: quiz.mine, topic: quiz.mine ? quiz.vote || undefined : undefined }); }
     else if (r.act === 'ans' && quiz.myAns === null) { quiz.myAns = r.arg; send({ t: 'qans', id: quiz.id, i: quiz.i, c: r.arg }); }
     else if (r.act === 'close') quiz = null;
     return true;
