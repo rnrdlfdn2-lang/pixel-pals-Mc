@@ -13,8 +13,9 @@
     melon: { name: '수박', r: 22, bounce: 0.2, grav: 1, colors: ['#e5484d', '#ff7b7b', '#2f9e44', '#ffe3e3'] },
   };
   const ORDER = ['glass', 'plate', 'wood', 'card', 'balloon', 'can', 'melon'];
-  const GAP = { 1: 4500, 2: 2600, 3: 1400 };            // 밀도별로 물건이 떨어지는 간격(ms)
-  const MAX_OBJS = 70, LIFE_MS = 150000;                // 바닥에 최대 70개, 오래되면 서서히 사라짐
+  // 속도 게이지 rate(0~100) -> 물건이 떨어지는 간격: 0 이면 4.5초에 1개, 100 이면 0.1초에 1개 (사이는 부드럽게 이어지는 지수 곡선)
+  const GAP_SLOW = 4500, GAP_FAST = 100, RATE_DEFAULT = 25;
+  const MAX_OBJS = 50, LIFE_MS = 150000;                // 바닥에 최대 70개, 오래되면 서서히 사라짐
   const BALLOON_COLORS = ['#ff5d73', '#ffd23f', '#4cc9f0', '#80ed99', '#c77dff', '#ff9f1c'];
 
   function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -24,8 +25,8 @@
     const R = rng(hashK(k, t0));
     return { k, mat: ORDER[Math.floor(R() * ORDER.length)], fx: 0.04 + R() * 0.92, rot: R() * 6.28, spin: (R() - 0.5) * 3, hue: BALLOON_COLORS[Math.floor(R() * BALLOON_COLORS.length)] };
   }
-  const gapOf = (density) => GAP[density] || GAP[2];
-  const indexAt = (sNow, t0, density) => Math.floor((sNow - t0) / gapOf(density));   // 지금까지 떨어졌어야 하는 마지막 번호
+  const gapOf = (rate) => { const r = Math.max(0, Math.min(100, Number.isFinite(Number(rate)) ? Number(rate) : RATE_DEFAULT)); return GAP_SLOW * Math.pow(GAP_FAST / GAP_SLOW, r / 100); };
+  const indexAt = (sNow, t0, rate) => Math.floor((sNow - t0) / gapOf(rate));   // 지금까지 떨어졌어야 하는 마지막 번호
   function make(k, t0, W, now) {
     const s = specOf(k, t0), M = MATS[s.mat];
     return { k, mat: s.mat, r: M.r, x: M.r + s.fx * Math.max(10, W - 2 * M.r), y: -M.r - 4, vx: 0, vy: 40, rot: s.rot, vr: s.spin, hue: s.hue, born: now, rest: 0 };
@@ -90,6 +91,6 @@
     if (hover) { g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 2; g.setLineDash([4, 3]); g.beginPath(); g.arc(0, 0, r + 4, 0, 6.29); g.stroke(); }
     g.restore();
   }
-  root.Smash = { MATS, ORDER, MAX_OBJS, LIFE_MS, specOf, gapOf, indexAt, make, step, hit, trim, alphaOf, draw };
+  root.Smash = { RATE_DEFAULT, MATS, ORDER, MAX_OBJS, LIFE_MS, specOf, gapOf, indexAt, make, step, hit, trim, alphaOf, draw };
   if (typeof module !== 'undefined') module.exports = root.Smash;
 })(typeof window !== 'undefined' ? window : globalThis);

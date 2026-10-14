@@ -25,8 +25,8 @@
     { id: 'glv', name: '황금 장갑', sprite: 'glove', kind: 'punch', hold: true, cooldownMs: 5000, power: 10, range: 70, dmg: 10 },
     // 레벨 해금 무기: unlock = 필요한 레벨 / hs = 들었을 때 확대 / burst, overheatMs = 연발 후 과열
     { id: 'flm', name: '화염방사기', sprite: 'flamer', kind: 'flame', hold: true, cooldownMs: 800, power: 1, dmg: 3, unlock: 4, hs: 1.3 },
-    { id: 'kat', name: '사무라이 칼', sprite: 'katana', kind: 'slash', hold: true, cooldownMs: 900, power: 2, range: 90, dmg: 4, unlock: 6, hs: 1.0 },
-    { id: 'gat', name: '게틀링건', sprite: 'gatling', kind: 'gun', hold: true, cooldownMs: 150, burst: 8, overheatMs: 2000, dmg: 5, unlock: 8, hs: 1.2 },
+    { id: 'kat', name: '사무라이 칼', sprite: 'katana', kind: 'wave', hold: true, cooldownMs: 500, power: 1, dmg: 4, waves: 3, unlock: 6, hs: 1.0 },
+    { id: 'gat', name: '게틀링건', sprite: 'gatling', kind: 'gun', hold: true, cooldownMs: 100, burst: 16, overheatMs: 2000, dmg: 5, unlock: 8, hs: 1.2 },
   ];
   // 아이템 id 는 짧게(서버가 예전 버전이면 4글자쯤에서 잘라 버려서 긴 id 는 기본 공으로 바뀜). 예전에 저장된 긴 id 는 별명으로 연결
   const ALIAS = { cannon: 'can', glove: 'glv', cann: 'can', glov: 'glv', flamer: 'flm', katana: 'kat', gatling: 'gat' }, normThrow = (id) => ALIAS[id] || id;

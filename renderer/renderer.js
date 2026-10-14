@@ -226,15 +226,15 @@ function drawPunch(p, now) {
     for (let k = 3; k >= 1; k--) { const q = at(u - k * 0.12, rr); g.globalAlpha = 0.2; drawItem(g, 'glove', q.x, q.y, opt(u - k * 0.12)); }
     g.globalAlpha = 1;
   }
-  const q = at(u, rr); { const tr = Bz.auraTier(Bz.levelInfo(xps[p.uid] || 0).lv); if (tr >= 1) drawAura(q.x, q.y, 34 * sc, tr, now); } drawItem(g, 'glove', q.x, q.y, opt(u));
+  const q = at(u, rr); drawItem(g, 'glove', q.x, q.y, opt(u));
   return true;
 }
 function drawHeld(p, now, T) {
   const info = itemInfo(T.sprite), sc = p.sc || 1, s = (T.hs || (T.sprite === 'glove' ? 1.6 : 2)) * sc, pv = gunPivot(p), since = now - p.recoilAt;
-  let aim = gunAim(p, now); if (T.kind === 'slash' && !(now < p.aimUntil && p.aimTarget)) aim = p.dir >= 0 ? -1.05 : Math.PI + 1.05;      // 칼은 평소에 어깨 위로 비스듬히 들고 있음
+  let aim = gunAim(p, now); if (T.kind === 'wave' && !(now < p.aimUntil && p.aimTarget)) aim = p.dir >= 0 ? -1.05 : Math.PI + 1.05;      // 칼은 평소에 어깨 위로 비스듬히 들고 있음
+  if (T.kind === 'wave' && p.swingAt && now >= p.swingAt && now < p.swingAt + 360) { const u = ((now - p.swingAt) % 110) / 110, off = -1.0 + 1.9 * (1 - Math.pow(1 - u, 2)); aim += off * (Math.cos(aim) >= 0 ? 1 : -1); }       // 칼질 3번: 위에서 아래로 쓱쓱쓱
   const rec = T.kind === 'bow' ? 0 : since >= 0 && since < 140 ? -(1 - since / 140) * (T.kind === 'cannon' ? 9 : 5) * sc : 0;       // 쏘는 순간 반동
   const flip = Math.cos(aim) < 0, ang = flip ? Math.PI - aim : aim;
-  { const tr = Bz.auraTier(Bz.levelInfo(xps[p.uid] || 0).lv); if (tr >= 1) drawAura(pv.x + Math.cos(aim) * (info.w * 0.5) * s * 0.6, pv.y + Math.sin(aim) * (info.w * 0.5) * s * 0.6, Math.max(info.w, info.h) * s * 0.75, tr, now); }
   g.save(); g.translate(pv.x + Math.cos(aim) * rec, pv.y + Math.sin(aim) * rec); if (flip) g.scale(-1, 1); g.rotate(ang - rad(info.forward));
   drawItem(g, T.sprite, 0, 0, { s, ax: info.pivot[0], ay: info.pivot[1] }); g.restore();
   if (T.kind === 'bow') {                                                      // 시위: 평소엔 곧게, 쏠 땐 화살을 걸고 뒤로 당김
@@ -263,10 +263,15 @@ function spawnShot(T, item, a, b, now) {
     const mz = gunMuzzle(a, now, T.sprite, T.hs); s.x0 = mz.x; s.y0 = mz.y; s.from = a; s.start = now + PJ.RELEASE_MS; s.dur = 800;
   } else if (kind === 'axe') {
     s.dur = 620; s.sign = Math.sign(t.x - c.x) || 1;
-  } else if (kind === 'punch' || kind === 'slash') {                                 // 황금 장갑 / 사무라이 칼: 몸째 돌진해서 크게 휘두름
+  } else if (kind === 'wave') {                                                      // 사무라이 칼: 한 번에 칼질 3번, 참격 3개를 0.11초 간격으로 연달아 날림
+    const dir = Math.sign(t.x - c.x) || 1; a.dir = dir; a.heldItem = T.id; a.gunUntil = now + 2500; a.aimTarget = b; a.aimUntil = now + PJ.RELEASE_MS + 330 + 160; a.swingAt = now + PJ.RELEASE_MS - 20;
+    const mz = gunMuzzle(a, now, T.sprite, T.hs || 1), n = T.waves || 3; s.x0 = mz.x; s.y0 = mz.y; s.dur = Math.min(420, Math.max(190, PJ.dist(mz.x, mz.y, t.x, t.y) / 1700 * 1000));
+    for (let i = 0; i < n; i++) shots.push({ ...s, i, start: now + PJ.RELEASE_MS + i * 110 });
+    return;
+  } else if (kind === 'punch') {                                                     // 황금 장갑: 몸째 돌진해서 크게 휘두름
     const dir = Math.sign(b.x - a.x) || 1, gap = Math.abs(b.x - a.x) - ((a.bw || 40) + (b.bw || 40)) / 2, sc = a.sc || 1;
     a.dir = dir; a.heldItem = T.id; a.gunUntil = now + 1500; a.aimTarget = b; a.aimUntil = now + 600; a.throwAt = now + 140;
-    a.punch = { start: now, dir, dist: Math.max(0, Math.min(150, gap - 18 * sc)), slash: kind === 'slash' };
+    a.punch = { start: now, dir, dist: Math.max(0, Math.min(150, gap - 18 * sc)), slash: false };
     s.start = now + PUNCH_HIT_MS; s.dur = 10; s.x0 = a.x; s.y0 = c.y;
   } else if (kind === 'missile') {
     s.dur = PJ.FLIGHT.missile; const amp = PJ.curveAmp(c.x, c.y, t.x, t.y) * rnd(0.85, 1.15), cc = PJ.curveControl(c.x, c.y, t.x, t.y, amp, rnd(-0.2, 0.2)); s.cx = cc.cx; s.cy = cc.cy;
@@ -293,7 +298,7 @@ function impact0(s, t, now) {
   else if (s.kind === 'bow') { onHit(s.to, now, 'tick', dir, s.power); parts(t.x, t.y, 7, ['#d9a066', '#ffffff', '#b8bfca'], { min: 60, max: 200, gy: 200, dmin: 200, dmax: 380, size: 4 }); }
   else if (s.kind === 'flame') { onHit(s.to, now, 'burn', dir, s.power); if (!s.to.isBoss && !s.to.isObj) startBurn(s, now); parts(t.x, t.y, 12, ['#fff3b0', '#ffd23f', '#ff7b1c'], { min: 40, max: 180, up: 120, gy: -140, size: 6, dmin: 400, dmax: 700 }); }
   else if (false) { fx.push({ type: 'boom', x: t.x, y: t.y, start: now, dur: 650, seed: Math.random() * 6, sc: 1.0 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 420, color: '#ff9f1c', r: 80 }); parts(t.x, t.y, 22, ['#fff3b0', '#ffd23f', '#ff9f1c', '#ff5a36'], { min: 60, max: 260, up: 160, gy: -120, size: 6, dmin: 500, dmax: 900 }); }
-  else if (s.kind === 'slash') { onHit(s.to, now, 'slash', dir, s.power); fx.push({ type: 'slashfx', x: t.x, y: t.y, start: now, dur: 420, dir }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 300, color: '#bfe6ff', r: 70 }); parts(t.x, t.y, 14, ['#ffffff', '#bfe6ff', '#8ecbff'], { angle: dir > 0 ? -0.6 : Math.PI + 0.6, spread: 0.9, min: 120, max: 380, gy: 200, size: 4, dmin: 250, dmax: 500 }); }
+  else if (s.kind === 'wave') { if (s.i && !s.to.isBoss && !s.to.isObj) SND.slash(); else onHit(s.to, now, 'slash', dir, s.power); fx.push({ type: 'slashfx', x: t.x, y: t.y, start: now, dur: 420, dir }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 300, color: '#bfe6ff', r: 70 }); parts(t.x, t.y, 14, ['#ffffff', '#bfe6ff', '#8ecbff'], { angle: dir > 0 ? -0.6 : Math.PI + 0.6, spread: 0.9, min: 120, max: 380, gy: 200, size: 4, dmin: 250, dmax: 500 }); }
   else if (s.kind === 'punch') { onHit(s.to, now, 'punch', dir, s.power); fx.push({ type: 'burst', x: t.x, y: t.y, start: now, dur: 520, seed: Math.random() * 6 }); fx.push({ type: 'ring', x: t.x, y: t.y, start: now, dur: 520, color: '#ffe27a' }); parts(t.x, t.y, 26, ['#ffe27a', '#e8b730', '#ffffff', '#ff5fa2', '#3fd0c9'], { min: 160, max: 460, gy: 120, dmin: 450, dmax: 800 }); shakeUntil = now + 520; }
   else if (s.kind === 'gun') { onHit(s.to, now, 'tick', dir); parts(t.x, t.y, 8, ['#fff6b0', '#ffd23f', '#ffffff'], { min: 80, max: 240, gy: 200, dmin: 160, dmax: 300, size: 4 }); }
   else if (s.sprite === 'poop') { onHit(s.to, now, 'splat', dir); parts(t.x, t.y, 12, ['#b47449', '#9e643c', '#915a35'], { min: 60, max: 200, up: 70, dmin: 350, dmax: 600 }); }
@@ -314,8 +319,14 @@ function drawAura(x, y, r, tier, now) {
   if (t === 5) { g.globalAlpha = 0.45; g.strokeStyle = `hsl(${(now / 6 + 240) % 360},100%,70%)`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, rr * 1.0 * pulse, 0, 7); g.stroke(); }
   g.restore();
 }
+function drawGlow(x, y, r, tier, now) {                                              // 투사체에만 붙는 은은한 광휘 (레벨 단계에 따라 색만 조금 달라짐, 작고 옅게)
+  const t = Math.min(5, tier), rr = r * (0.85 + 0.06 * t), c1 = t === 5 ? `hsl(${(now / 8) % 360},100%,65%)` : AURA[t][0], c2 = t === 5 ? `hsl(${(now / 8 + 120) % 360},100%,80%)` : AURA[t][1];
+  g.save(); g.globalCompositeOperation = 'lighter'; const gr = g.createRadialGradient(x, y, 0, x, y, rr);
+  gr.addColorStop(0, withAlpha(c2, 0.55)); gr.addColorStop(0.5, withAlpha(c1, 0.28)); gr.addColorStop(1, withAlpha(c1, 0));
+  g.globalAlpha = 0.5 + 0.06 * t; g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); g.restore();
+}
 function shotPos(s, tc, t) {                                                          // 날아가는 중인 아이템의 현재 위치 (후광을 따라 붙이려고)
-  if (s.kind === 'gun') return PJ.linePos(s.x0, s.y0, tc.x, tc.y, t);
+  if (s.kind === 'gun' || s.kind === 'wave') return PJ.linePos(s.x0, s.y0, tc.x, tc.y, t);
   if (s.kind === 'cannon') return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 26 * SIZE);
   if (s.kind === 'axe') return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 85 * SIZE);
   if (s.kind === 'bow') return PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 30 * SIZE);
@@ -761,10 +772,10 @@ const frozen = (p, now) => p.state !== 'online' || p.stunUntil > now || now - p.
 if (cfg.testMode) window.__t = { peers, shots, fx, get myId() { return myId; }, get boss() { return boss; }, bossProxy, get xps() { return xps; }, get quiz() { return quiz; }, get smash() { return { objs: sobjs, fxc, broken: [...sBroken], dolls }; } };         // (시험 전용) 환경변수 PIXELPALS_TEST_CURSOR 를 줬을 때만 상태를 들여다볼 수 있게 함
 let last = performance.now(), lastPos = 0, sentWalk = false, lastRegions = 0, lastRegionKey = '', lastRegionSend = 0;
 // ---- 뿌셔뿌셔 존 (방장이 켜면 물건이 떨어져 쌓이고, 클릭/드래그하면 재질에 맞게 부서짐) + 외침 단어 ----
-let fxc = { smash: false, density: 2, t0: 0, words: [] }; const sobjs = [], sBroken = new Set(); let sNextK = null, combo = { n: 0, at: 0 }, smashHeld = false;
+let fxc = { smash: false, rate: Smash.RATE_DEFAULT, t0: 0, words: [] }; const sobjs = [], sBroken = new Set(); let sNextK = null, combo = { n: 0, at: 0 }, smashHeld = false;
 const isShout = (text) => { const t = String(text || '').toLowerCase(); return fxc.words.some((w) => w && t.includes(String(w).toLowerCase())); };
 function setFx(m, live, now) {
-  const was = fxc.smash, t0 = fxc.t0; fxc = { smash: !!(m && m.smash), density: (m && m.density) || 2, t0: (m && m.t0) || 0, words: Array.isArray(m && m.words) ? m.words : [] };
+  const was = fxc.smash, t0 = fxc.t0; fxc = { smash: !!(m && m.smash), rate: m && Number.isFinite(Number(m.rate)) ? Number(m.rate) : Smash.RATE_DEFAULT, t0: (m && m.t0) || 0, words: Array.isArray(m && m.words) ? m.words : [] };
   if (fxc.t0 !== t0 || !fxc.smash) { sNextK = null; sBroken.clear(); }
   syncDolls(m && fxc.smash ? m.dolls : [], live, now);
   if (!fxc.smash) { if (sobjs.length) { for (const o of sobjs) parts(o.x, o.y, 4, ['#ffffff', '#cfd4e4'], { min: 20, max: 90, gy: 100, size: 3 }); sobjs.length = 0; } }
@@ -773,8 +784,8 @@ function setFx(m, live, now) {
 }
 function updateSmash(now, dt) {
   if (!fxc.smash || !myId) return;
-  const sNow = serverNow(), kNow = Smash.indexAt(sNow, fxc.t0, fxc.density); if (sNextK == null) sNextK = Math.max(0, kNow);
-  for (let n = 0; sNextK <= kNow && n < 3; n++, sNextK++) if (!sBroken.has(sNextK)) sobjs.push(Smash.make(sNextK, fxc.t0, W, now));
+  const sNow = serverNow(), kNow = Smash.indexAt(sNow, fxc.t0, fxc.rate); if (sNextK == null) sNextK = Math.max(0, kNow);
+  for (let n = 0; sNextK <= kNow && n < 4; n++, sNextK++) if (!sBroken.has(sNextK)) sobjs.push(Smash.make(sNextK, fxc.t0, W, now));
   Smash.step(sobjs, dt, W, GROUND()); Smash.trim(sobjs, now);
 }
 function drawSmash(now) { for (const o of sobjs) { const a = Smash.alphaOf(o, now); if (a < 1) g.globalAlpha = a; Smash.draw(g, o, o === smashHover); g.globalAlpha = 1; } }
@@ -842,7 +853,7 @@ function dollResolve(s, t, now) {
   if (R) splashObjects(s, t, now, R, null);                                      // 터지는 무기는 인형 옆 물건도 같이 부숨
 }
 const objTgt = (o) => o.tgt || (o.tgt = { isObj: true, o, id: 'obj' + o.k, state: 'online', look: 0, get x() { return o.x; }, get cy() { return o.y; }, get bw() { return 2 * o.r; }, get bh() { return 2 * o.r; } });
-const SPLASH = { bomb: 130, cannon: 210, missile: 90, punch: 90, slash: 75 };      // 터지는 무기는 주변 물건도 같이 부숨 (반경 px)
+const SPLASH = { bomb: 130, cannon: 210, missile: 90, punch: 90, wave: 55 };      // 터지는 무기는 주변 물건도 같이 부숨 (반경 px)
 function splashObjects(s, t, now, R, o0) {                                         // 터진 자리 주변 물건들 (o0 은 직접 맞은 물건)
   const hit = []; if (o0 && sobjs.includes(o0)) hit.push(o0);
   if (R) for (const o of sobjs) if (o !== o0 && Math.hypot(o.x - t.x, o.y - t.y) <= R + o.r) hit.push(o);
@@ -949,7 +960,7 @@ function frame(now) {
       top = draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE });
       if (p.burnUntil > now) { g.save(); g.filter = 'sepia(1) saturate(8) hue-rotate(-38deg)'; g.globalAlpha = 0.5 + 0.15 * Math.sin(now / 80); draw(g, p.look, p.x + (p.lx || 0), GROUND(), { state, t, flip: p.dir < 0, scale: scale * SIZE }); g.restore(); }      // 화상: 살짝 빨개짐
     }
-    { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !((HT.kind === 'punch' || HT.kind === 'slash') && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
+    { const HT = !p.kb && p.state !== 'offline' ? heldOf(p, now) : null; if (HT && !(HT.kind === 'punch' && drawPunch(p, now))) drawHeld(p, now, HT); }        // 저격총을 고른 캐릭터는 총을 들고 있음 (쏠 땐 대상을 겨눔)
     g.globalAlpha = 1;
     nameplate(p, top); p.bubW = 0;
     p.top = top;
@@ -997,11 +1008,11 @@ function frame(now) {
         parts(s.x0, s.y0, 16, ['#ffffff', '#cfd4e4', '#8d99ae', '#ffd23f', '#ff9f1c'], { angle: ang, spread: 0.45, min: 80, max: 380, gy: -30, size: 8, dmin: 500, dmax: 1000 }); fx.push({ type: 'ring', x: s.x0 + Math.cos(ang) * 22, y: s.y0 + Math.sin(ang) * 22, start: now, dur: 320, color: '#ffe9a8', r: 46 }); shakeUntil = Math.max(shakeUntil, now + 220); }
       else if (s.kind === 'bow') SND.twang();
       else if (s.kind === 'flame') SND.flame();
-      else if (s.kind === 'slash') SND.slash();
+      else if (s.kind === 'wave') SND.slash();
       else if (s.kind === 'axe' || s.kind === 'punch') SND.whoosh();
     }
     if (t >= 1) { impact(s, tc, now); shots.splice(i, 1); continue; }
-    if (s.tier >= 1 && s.kind !== 'punch' && s.kind !== 'slash' && s.kind !== 'flame') { const ap = shotPos(s, tc, t); if (ap) drawAura(ap.x, ap.y, (s.kind === 'gun' ? 20 : s.kind === 'cannon' ? 30 : 24) * SIZE, s.tier, now); }
+    if (s.tier >= 1 && s.kind !== 'punch' && s.kind !== 'flame') { const ap = shotPos(s, tc, t); if (ap) drawGlow(ap.x, ap.y, (s.kind === 'gun' ? 13 : s.kind === 'cannon' ? 20 : 16) * SIZE, s.tier, now); }
     if (s.kind === 'flame') {                                                      // 불길: 총구에서 대상 쪽으로 쉴 새 없이 뿜어져 나옴
       const mz = gunMuzzle(s.from, now, 'flamer', s.T.hs), dx = tc.x - mz.x, dy = tc.y - mz.y, dist = Math.max(60, Math.hypot(dx, dy)), ang = Math.atan2(dy, dx), n = Math.ceil(dt * 110);
       for (let q = 0; q < n; q++) {                                                // 말랑한 불길 덩어리들이 앞으로 퍼지며 날아감 (대포처럼 한 방에 터지지 않고 계속 뿜어져 나옴)
@@ -1009,7 +1020,6 @@ function frame(now) {
         fx.push({ type: 'fpuff', x: mz.x - Math.sin(ang) * pj, y: mz.y + Math.cos(ang) * pj, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp - 30, r0: 5 * SIZE, r1: rnd(20, 32) * SIZE, start: now, dur: rnd(330, 460) });
         if (Math.random() < 0.35) parts(mz.x, mz.y, 1, ['#fff3b0', '#ffb703', '#ff7b1c'], { angle: ang, spread: 0.22, min: dist * 2.2, max: dist * 3.0, gy: -90, size: 6, dmin: 250, dmax: 400 });
       }
-      if (s.tier >= 1) drawAura(mz.x, mz.y, 26 * SIZE, s.tier, now);
     } else if (s.kind === 'gun') {                                                        // 총알: 일직선, 아주 빠름
       const p = PJ.linePos(s.x0, s.y0, tc.x, tc.y, t), ang = Math.atan2(tc.y - s.y0, tc.x - s.x0);
       g.save(); g.translate(p.x, p.y); g.rotate(ang); g.fillStyle = 'rgba(255,214,102,0.45)'; g.fillRect(-46, -1, 40, 2); g.fillStyle = '#ffd23f'; g.fillRect(-14, -2, 10, 4); g.fillStyle = '#fff8d0'; g.fillRect(-4, -3, 14, 6); g.restore();
@@ -1023,7 +1033,13 @@ function frame(now) {
       const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 85 * SIZE); drawItem(g, 'axe', p.x, p.y, { s: 2.4 * SIZE, angle: t * Math.PI * 8 * s.sign });
     } else if (s.kind === 'bow') {                                                 // 화살: 낮은 포물선, 날아가는 방향으로 기울어짐
       const p = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, t, 30 * SIZE), q = PJ.arcPos(s.x0, s.y0, tc.x, tc.y, Math.min(1, t + 0.02), 30 * SIZE); drawArrow(p.x, p.y, Math.atan2(q.y - p.y, q.x - p.x), SIZE);
-    } else if (s.kind === 'punch' || s.kind === 'slash') {                         // (몸과 주먹/칼은 캐릭터에서 그림)
+    } else if (s.kind === 'wave') {                                                // 참격: 초승달 모양 칼빛이 날아가며 꼬리를 남김 (3개는 각자 기울기가 달라 엇갈려 베는 느낌)
+      const p = PJ.linePos(s.x0, s.y0, tc.x, tc.y, t), ang = Math.atan2(tc.y - s.y0, tc.x - s.x0), tilt = [0.55, -0.55, 0][s.i % 3], R = 24 * SIZE;
+      for (let k = 3; k >= 0; k--) { const pp = PJ.linePos(s.x0, s.y0, tc.x, tc.y, Math.max(0, t - k * 0.07)); g.save(); g.globalAlpha = k ? 0.2 / k + 0.05 : 1; g.translate(pp.x, pp.y); g.rotate(ang + tilt); g.scale(1 - k * 0.1, 1 - k * 0.1);
+        g.beginPath(); g.arc(0, 0, R, -1.15, 1.15); g.arc(-R * 0.55, 0, R * 1.324, 0.7615, -0.7615, true); g.closePath();
+        g.fillStyle = k ? 'rgba(150,215,255,.8)' : '#ffffff'; g.fill(); if (!k) { g.strokeStyle = 'rgba(110,200,255,.95)'; g.lineWidth = 3; g.stroke(); } g.restore(); }
+      g.globalAlpha = 1; void p;
+    } else if (s.kind === 'punch') {                                               // (몸과 주먹은 캐릭터에서 그림)
     } else if (false) {                                               // 주먹: 번쩍 날아가는 황금 장갑 + 잔상
       const flip = Math.cos(s.aim) < 0, ang = flip ? Math.PI - s.aim : s.aim, e = 1 - Math.pow(1 - t, 2);
       for (let k = 3; k >= 0; k--) { const tt = Math.max(0, e - k * 0.12), px = s.x0 + (tc.x - s.x0) * tt, py = s.y0 + (tc.y - s.y0) * tt; g.globalAlpha = k ? 0.22 : 1; drawItem(g, 'glove', px, py, { s: 2.4 * SIZE, flip, angle: ang, ax: itemInfo('glove').pivot[0], ay: itemInfo('glove').pivot[1] }); }
