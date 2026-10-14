@@ -22,6 +22,8 @@
     pig:  { id: 'pig',  name: '불돼지 보스', emoji: '🐗', face: -1, xp: 200, weight: 16, desc: '불덩이라 ❄️눈송이만 통해요' },
     mole: { id: 'mole', name: '두더지 보스', emoji: '🕳️', face: 0,  xp: 130, weight: 22, desc: '땅속을 오가다 올라올 때만 맞아요' },
     frog: { id: 'frog', name: '개구리 보스', emoji: '🐸', face: -1, xp: 140, weight: 16, desc: '폴짝폴짝 뛰어다녀요' },
+    // 특별 보스: Lv6 이상이 3명 이상 접속해 있어야 나옴. 체력 600, 회피 20%, 체력 400/200 에서 "심판"(한 명만 남기고 기절 -> 문제를 맞혀야 계속)
+    lord: { id: 'lord', name: '차원 마왕', emoji: '👿', face: 0, xp: 400, weight: 20, desc: '날고, 달리고, 주먹으로 날려 버려요 (Lv6 이상 3명 이상일 때)', hp: 600, evade: 0.2 },
   };
   const bossOf = (type) => BOSSES[type] || BOSSES.bat;
 
@@ -106,6 +108,30 @@
       else if (ph < 1.0) { const u = (ph - 0.3) / 0.7; x = lerp(x0, x1, u); lift = Math.sin(Math.PI * u) * v.H * 0.2; phase = 'air'; sx = 0.95; sy = 1.1; }
       else { x = x1; sprite = 'a2'; phase = 'land'; }
       return base({ cx: x * v.W, cy: gy - (v.bh * sy) / 2 - lift, flip: dir > 0, sprite, sx, sy, phase: phase + ':' + k });
+    },
+    // 차원 마왕: 14초 주기 [걷기 3.5 → 주먹 준비 0.9(바닥에 빨간 경고) → 주먹 0.4 → 쉬기 0.3 → 날아오르기/날아다니기 4 → 질주 1.4 → 착지 0.6 → 걷기 1.6 → 주먹 준비/주먹/쉬기 1.6]
+    // 주먹은 바라보는 쪽 바닥으로 뻗음 (fist: 0~1 뻗은 정도, dir: 방향, reach: 닿는 거리 배율). 그림은 한 장이라 sprite 는 항상 idle.
+    lord(seed, t, v) {
+      const T = 14, k = Math.floor(t / T), ph = t - k * T, ch = (i) => chain('lord' + seed, i, jump(seed, 41, 0.22, 0.5));
+      const c0 = ch(4 * k), c1 = ch(4 * k + 1), c2 = ch(4 * k + 2), c3 = ch(4 * k + 3), c4 = ch(4 * k + 4), gy = groundY(v), lift0 = v.H * 0.3, bob = Math.abs(Math.sin(t * 7)) * 5;
+      const dA = c1 >= c0 ? 1 : -1, dB = c3 >= c2 ? 1 : -1, dC = c4 >= c3 ? 1 : -1; let x = c0, alt = 0, phase = 'walk', sx = 1, sy = 1, rot = 0, fist = 0, dir = dA;
+      const walk = () => { sy = 1 + 0.025 * Math.sin(t * 14); rot = 0.035 * Math.sin(t * 7); alt = bob; };
+      if (ph < 3.5) { x = lerp(c0, c1, smooth(ph / 3.5)); walk(); }
+      else if (ph < 4.4) { x = c1; phase = 'windup'; sy = 0.96 + 0.03 * Math.sin(t * 30); dir = dA; }
+      else if (ph < 4.8) { x = c1; fist = Math.sin(Math.PI * (ph - 4.4) / 0.4); phase = 'punch'; dir = dA; sx = 1 + 0.06 * fist; }
+      else if (ph < 5.1) { x = c1; phase = 'rest'; dir = dA; }
+      else if (ph < 9.1) {                                                                  // 날아다니기: 올라가며 c1 -> c2 로 출렁이며 이동
+        const u = (ph - 5.1) / 4, rise = smooth(Math.min(1, (ph - 5.1) / 0.8)), fl = Math.sin(t * 16);
+        x = lerp(c1, c2, smooth(u)) + Math.sin(u * 12.6) * 0.04 * Math.sin(Math.PI * u); alt = lift0 * rise * (1 + 0.25 * Math.sin(u * 9.4)); phase = 'fly'; sx = 1 + 0.05 * fl; sy = 1 - 0.05 * fl; rot = 0.05 * Math.sin(t * 3);
+        dir = Math.sign(c2 - c1) || 1;
+      }
+      else if (ph < 10.5) { const u = (ph - 9.1) / 1.4; x = lerp(c2, c3, Math.pow(u, 1.6)); alt = lift0 * (1 - 0.35 * u); phase = 'dash'; sx = 1.18; sy = 0.9; dir = dB; rot = 0.12 * dB; }   // 빠르게 질주
+      else if (ph < 11.1) { const u = (ph - 10.5) / 0.6; x = c3; alt = lift0 * 0.65 * (1 - smooth(u)); phase = 'land'; dir = dB; }
+      else if (ph < 12.6) { x = lerp(c3, c4, smooth((ph - 11.1) / 1.5)); phase = 'walk'; walk(); dir = dC; }
+      else if (ph < 13.5) { x = c4; phase = 'windup2'; sy = 0.96 + 0.03 * Math.sin(t * 30); dir = dC; }
+      else if (ph < 13.9) { x = c4; fist = Math.sin(Math.PI * (ph - 13.5) / 0.4); phase = 'punch2'; dir = dC; sx = 1 + 0.06 * fist; }
+      else { x = c4; phase = 'rest'; dir = dC; }
+      return base({ anchor: 'center', cx: x * v.W, cy: gy - v.bh / 2 - alt, rot, flip: false, sprite: 'idle', sx, sy, phase: phase + ':' + k, fist, dir, air: alt > 40 });
     },
   };
 

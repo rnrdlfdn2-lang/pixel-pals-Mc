@@ -85,8 +85,9 @@ function options(list, isSel, make, onPick, lockOf) {
   return el('div', { class: 'opts' }, list.map((it, i) => { const lk = lockOf ? lockOf(it, i) : ''; return el('button', { class: 'opt' + (isSel(it, i) ? ' sel' : '') + (lk ? ' locked' : ''), onclick: () => onPick(it, i) }, make(it, i), el('span', { text: lk ? `🔒 ${it.name}` : it.name }), lk ? el('span', { class: 'lk', text: lk }) : null, el('span', { class: 'check', text: '✓' })); }));
 }
 function renderProfile() {
-  try { const fresh = api.getSettings(); if (fresh && fresh.xp) st.xp = fresh.xp; } catch {}
-  const myLv = Bosses.levelInfo(Number((st.xp || {})[st.activeCode]) || 0).lv;
+  try { const fresh = api.getSettings(); if (fresh && fresh.xp) st.xp = fresh.xp; if (fresh && fresh.lk) st.lk = fresh.lk; } catch {}
+  const myLv = Bosses.levelInfo(Number((st.xp || {})[st.activeCode]) || 0).lv, myKills = Number((st.lk || {})[st.activeCode]) || 0;
+  const lockTxt = (t) => (t.unlock && myLv < t.unlock ? `Lv.${t.unlock}` : t.unlockKills && myKills < t.unlockKills ? `👿 ${myKills}/${t.unlockKills}` : '');
   $('#nick').value = st.nickname;
   $('#showoff').checked = st.showOffline !== false;
   $('#throwguard').checked = !!st.throwGuard;
@@ -99,7 +100,7 @@ function renderProfile() {
   $('#chars').replaceChildren(options(CHARACTERS, (_, i) => i === st.character, (_, i) => icon(i), (_, i) => save({ character: i }, true)));
   $('#bubbles').replaceChildren(options(BUBBLES, (b) => b.id === st.bubble,
     (b) => el('div', { class: 'pill', style: `background:${b.bg};border-color:${b.border};color:${b.text}`, text: '안녕' }), (b) => save({ bubble: b.id })));
-  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === Sprites.normThrow(st.throwable), (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => (t.unlock && myLv < t.unlock ? toast(`🔒 ${t.name}은(는) Lv.${t.unlock} 부터 쓸 수 있어요 (지금 Lv.${myLv})`, true) : save({ throwable: t.id })), (t) => (t.unlock && myLv < t.unlock ? `Lv.${t.unlock}` : '')));
+  $('#throws').replaceChildren(options(THROWABLES, (t) => t.id === Sprites.normThrow(st.throwable), (t) => (t.sprite ? itemIcon(t.sprite) : el('div', { class: 'emoji', text: t.emoji })), (t) => (t.unlock && myLv < t.unlock ? toast(`🔒 ${t.name}은(는) Lv.${t.unlock} 부터 쓸 수 있어요 (지금 Lv.${myLv})`, true) : t.unlockKills && myKills < t.unlockKills ? toast(`🔒 ${t.name}은(는) 차원 마왕을 ${t.unlockKills}번 처치하면 쓸 수 있어요 (지금 ${myKills}/${t.unlockKills}번)`, true) : save({ throwable: t.id })), lockTxt));
 }
 $('#showoff').addEventListener('change', () => save({ showOffline: $('#showoff').checked }).then(() => toast('저장했어요')));
 $('#throwguard').addEventListener('change', () => save({ throwGuard: $('#throwguard').checked }).then(() => toast('저장했어요')));
@@ -187,16 +188,20 @@ function bossPanel(g) {                                                         
   box.append(el('div', { class: 'lvl', text: `내 레벨 Lv.${li.lv} · ${li.max ? `EXP ${li.xp} (MAX)` : `EXP ${li.xp} / ${li.next}`} · 공격력 +${Bosses.dmgBonus(li.lv)}` }), el('div', { class: 'bar' }, el('i', { style: `width:${li.max ? 100 : Math.round(100 * li.into / li.need)}%` })));
   const act1 = b.active ? Bosses.BOSSES[b.active.type] : null;
   box.append(el('div', { class: 'stat', text: act1 ? `지금 ${act1.emoji} ${act1.name} 출현 중 · 약 ${Math.max(1, Math.ceil(b.active.leftMs / 60000))}분 남음` : b.on ? `다음 출현: 약 ${Math.max(1, Math.ceil((b.nextInMs || 0) / 60000))}분 뒤 (앱을 켜 둔 그룹원이 있을 때만)` : '보스 출현이 꺼져 있어요' }));
+  { const need = b.lordNeed || 3, lv = b.lordLv || 6, ready = b.lordReady || 0, kills = g.lordKills || 0;
+    box.append(el('div', { class: 'stat', text: `👿 차원 마왕 (체력 600 · 회피 20%): Lv.${lv} 이상이 ${need}명 이상 접속해 있으면 나올 수 있어요 (지금 ${ready}명) · 내 처치 ${kills}회 — 5회 처치하면 🪄 마왕의 스태프 해금${kills >= 5 ? ' ✅' : ''}` })); }
   if (g.owner) {
     const save = (patch) => act(async () => { await rpc('bosscfg', { code: g.code, ...patch }); await refreshGroups(); }, '보스 설정을 바꿨어요 (그룹원 모두에게 적용)');
     const cb = el('input', { type: 'checkbox' }); cb.checked = !!b.on; cb.addEventListener('change', () => save({ on: cb.checked }));
     box.append(el('div', { class: 'ctl' }, el('label', {}, cb, el('span', { text: '보스 출현' })),
       el('label', {}, el('span', { text: '출현 주기' }), bossSelect(BOSS_EVERY, b.everyMin, (v) => save({ everyMin: v })), el('span', { text: '마다' })),
       el('label', {}, el('span', { text: '머무는 시간' }), bossSelect(BOSS_LASTS, b.lastsMin, (v) => save({ lastsMin: v })), el('span', { text: '동안' })),
+      el('button', { class: 'b', id: 'lordnow', text: '👿 마왕 소환', onclick: () => act(async () => { await rpc('bossnow', { code: g.code, lord: true }); await refreshGroups(); }, '차원 마왕을 불렀어요!') }),
       el('button', { class: 'b', text: '지금 소환', onclick: () => act(async () => { await rpc('bossnow', { code: g.code }); await refreshGroups(); }, '보스를 불렀어요!') })));
     if (!b.on || act1) box.lastChild.lastChild.disabled = true;
+    { const lb = box.lastChild.querySelector('#lordnow'); if (lb) lb.disabled = !b.on || !!act1 || (b.lordReady || 0) < (b.lordNeed || 3); }
   } else box.append(el('div', { class: 'stat', text: `방장 설정: ${b.on ? '켜짐' : '꺼짐'} · ${fmtMin(b.everyMin)}마다 출현 · ${fmtMin(b.lastsMin)} 동안 머묾` }));
-  box.append(el('div', { class: 'note', text: '보스를 공격해서 체력 100을 깎으면 처치! 경험치를 받아요. (내 캐릭터를 오른쪽 클릭하면 레벨이 보여요)' }));
+  box.append(el('div', { class: 'note', text: '보스를 공격해서 체력을 모두 깎으면 처치! 경험치를 받아요. (내 캐릭터를 오른쪽 클릭하면 레벨이 보여요)' }));
   return box;
 }
 function groupCard(g) {

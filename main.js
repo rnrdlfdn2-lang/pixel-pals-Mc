@@ -36,7 +36,7 @@ function loadSettings() {
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
   let s = {}; try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
   settings = { uid: crypto.randomUUID(), nickname: '', character: 0, bubble: 'default', throwable: 'ball', activeCode: '', showOffline: true, quietMode: false,
-    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, closeOnBlur: true, shortcuts: {}, composerPlacement: null, groupSnapshots: [], xp: {}, ...s };
+    throwGuard: false, soundOn: true, displayId: null, sizeScale: 1, autoUpdateCheck: true, closeOnBlur: true, shortcuts: {}, composerPlacement: null, groupSnapshots: [], xp: {}, lk: {}, ...s };
   SC = effectiveShortcuts(); saveFile();
 }
 function saveFile() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); }
@@ -100,6 +100,9 @@ ipcMain.on('groups:push', (_e, list) => {
 ipcMain.on('groups:refresh', () => refreshGroups());
 ipcMain.on('xp:save', (_e, code, xp) => {                                         // 내 경험치를 내 PC 에도 적어 둠 (서버 데이터가 사라져도 되살릴 수 있게)
   if (typeof code !== 'string' || !Number.isFinite(xp)) return; settings.xp = settings.xp || {}; settings.xp[code.slice(0, 20)] = Math.max(0, Math.min(99999, Math.floor(xp))); saveFile();
+});
+ipcMain.on('lk:save', (_e, code, n) => {                                         // 차원 마왕 처치 횟수도 내 PC 에 적어 둠 (스태프 해금 기록)
+  if (typeof code !== 'string' || !Number.isFinite(n)) return; settings.lk = settings.lk || {}; settings.lk[code.slice(0, 20)] = Math.max(0, Math.min(999, Math.floor(n))); saveFile();
 });
 ipcMain.on('group:forget', (_e, code) => {                                       // 그룹을 나갔거나 삭제/제외됨 -> 복원 정보도 지움 (되살아나지 않게)
   settings.groupSnapshots = settings.groupSnapshots.filter((s) => s.code !== code);
