@@ -631,11 +631,18 @@ function quizBtn(x, y, w, h, label, o, now) {                                   
 function quizCard(x, y, w, h, color) {
   g.save(); g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 18; g.fillStyle = 'rgba(24,22,52,.97)'; g.beginPath(); g.roundRect(x, y, w, h, 16); g.fill(); g.restore();
   g.strokeStyle = color || '#b9a9ff'; g.lineWidth = 3; g.beginPath(); g.roundRect(x, y, w, h, 16); g.stroke(); quizBounds = { x, y, w, h };
+  quizRects.push(closeX(x + w - 20, y + 20, 'hide'));                                           // 오른쪽 위 X: 이 카드 끄기 (나한테만 안 보이게)
+}
+function closeX(cx, cy, act) {
+  const hov = Math.hypot(mouse.x - cx, mouse.y - cy) < 13; g.save(); g.fillStyle = hov ? 'rgba(200,70,70,.9)' : 'rgba(255,255,255,.16)'; g.beginPath(); g.arc(cx, cy, 11, 0, 7); g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx - 4, cy - 4); g.lineTo(cx + 4, cy + 4); g.moveTo(cx + 4, cy - 4); g.lineTo(cx - 4, cy + 4); g.stroke(); g.restore();
+  return { x: cx - 14, y: cy - 14, w: 28, h: 28, act };
 }
 function drawQuiz(now) {
   quizRects = []; quizBounds = null; if (quiz && quiz.boss && quiz.endAt && now > quiz.endAt) { quiz = quizSaved; quizSaved = null; } if (!quiz) return;
   const sNow = serverNow();
   if (quiz.phase === 'invite' && sNow > quiz.until + 6000) { quiz = null; return; }
+  if (quiz.hidden && quiz.phase !== 'board') return;
   if (quiz.phase === 'board' && now > quiz.boardUntil) { quiz = null; return; }
   const left = (u) => Math.max(0, Math.ceil((u - sNow) / 1000));
   if (quiz.phase === 'invite') {
@@ -668,7 +675,7 @@ function drawQuiz(now) {
   const chH = cl.map((l) => 20 + l.length * 21), h = 56 + ql.length * 26 + 14 + chH.reduce((a, b) => a + b + 8, 0) + 44;
   quizCard(x, y, w, h, reveal ? (quiz.boss && !quiz.bossOk ? '#ff8a8a' : '#8dffb0') : quiz.boss ? '#c9a2ff' : '#b9a9ff');
   g.textAlign = 'left'; g.fillStyle = '#b9a9ff'; g.font = `700 13px ${QFONT}`; g.fillText((quiz.boss ? (quiz.spec ? `👀 ${quiz.who || '친구'}님이 마왕의 문제를 푸는 중 · ${quiz.topicName}` : `👿 차원 마왕의 문제 · ${quiz.topicName}`) : quiz.n > 1 ? `🧠 ${quiz.topicName} 퀴즈 ${quiz.i + 1} / ${quiz.n}` : `🧠 ${quiz.topicName} 퀴즈`), x + 18, y + 26);
-  g.textAlign = 'right'; g.fillStyle = '#ffd23f'; g.fillText(reveal ? (quiz.boss ? '' : `다음 문제까지 ${Math.max(0, Math.ceil((5000 - (now - quiz.revealAt)) / 1000))}초`) : (left(quiz.until) > 0 ? `${left(quiz.until)}초` : '채점 중…'), x + w - 18, y + 26);
+  g.textAlign = 'right'; g.fillStyle = '#ffd23f'; g.fillText(reveal ? (quiz.boss ? '' : `다음 문제까지 ${Math.max(0, Math.ceil((5000 - (now - quiz.revealAt)) / 1000))}초`) : (left(quiz.until) > 0 ? `${left(quiz.until)}초` : '채점 중…'), x + w - 46, y + 26);
   if (!reveal) { const frac = Math.max(0, Math.min(1, (quiz.until - sNow) / 20000)); g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(x + 18, y + 34, inner, 5); g.fillStyle = frac > 0.3 ? '#8ecbff' : '#ff6b6b'; g.fillRect(x + 18, y + 34, inner * frac, 5); }
   g.textAlign = 'left'; g.font = `800 18px ${QFONT}`; g.fillStyle = '#fff'; ql.forEach((l, k) => g.fillText(l, x + 18, y + 66 + k * 26));
   let cy = y + 56 + ql.length * 26 + 14;
@@ -690,24 +697,27 @@ function quizClick(x, y, now) {                                                 
     else if (r.act === 'yes' || r.act === 'no') { quiz.mine = r.act === 'yes'; if (!quiz.mine) quiz.vote = null; send({ t: 'qjoin', id: quiz.id, yes: quiz.mine, topic: quiz.mine ? quiz.vote || undefined : undefined }); }
     else if (r.act === 'ans' && quiz.myAns === null) { quiz.myAns = r.arg; send(quiz.boss ? { t: 'lans', id: quiz.id, c: r.arg } : { t: 'qans', id: quiz.id, i: quiz.i, c: r.arg }); }
     else if (r.act === 'close') quiz = null;
+    else if (r.act === 'hide') { if (quiz.phase === 'invite' && quiz.mine === null) send({ t: 'qjoin', id: quiz.id, yes: false }); if (quiz.phase === 'invite') quiz.mine = false; if (quiz.phase === 'board') quiz = null; else quiz.hidden = true; }
     return true;
   }
   const b = quizBounds; return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
 }
 
 // ---------- 확성기: 화면 가운데에 크게 뜨는 안내 (이름 : 내용) ----------
-const megas = [];
+const megas = []; let megaRects = [];
 function pushMega(name, text, now, o = {}) {
   megas.push({ name: String(name || '누군가').slice(0, 12), text: String(text).slice(0, 200), start: now, plain: !!o.plain, color: o.color || '#ffd23f', dur: o.dur || Math.min(9000, Math.max(5000, 3500 + String(text).length * 90)) });
   while (megas.length > 3) megas.shift(); if (!quiet) SND.mega();
 }
+function megaClick(x, y) { for (const r of megaRects) if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) { r.m.start = -1e9; return true; } return false; }       // 안내 창의 X: 끄기
 function megaLayout(m) {                                                        // 줄바꿈 계산 (한 번만)
   const maxW = Math.min(W * 0.72, 780); g.font = '700 22px system-ui, "Malgun Gothic", sans-serif';
   const prefix = m.plain ? '' : `📢 ${m.name} : `, full = prefix + m.text, lines = []; let cur = '';
   for (const ch of full) { if (g.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch; }
-  lines.push(cur); m.lines = lines; m.prefix = prefix; m.w = Math.max(...lines.map((l) => g.measureText(l).width)) + 56; m.h = lines.length * 30 + 30;
+  lines.push(cur); m.lines = lines; m.prefix = prefix; m.w = Math.max(...lines.map((l) => g.measureText(l).width)) + 84; m.h = lines.length * 30 + 30;
 }
 function drawMegas(now) {
+  megaRects = [];
   for (let i = megas.length - 1; i >= 0; i--) if (now - megas[i].start > megas[i].dur) megas.splice(i, 1);
   if (quiet || !megas.length) return;
   const down = !!quizBounds; let y = H * 0.42, cursor = down ? quizBounds.y + quizBounds.h + 14 : 0;           // 퀴즈 카드가 떠 있으면 카드 아래로 차례로 쌓음
@@ -724,6 +734,7 @@ function drawMegas(now) {
       if (m.plain) { g.fillStyle = m.color; g.fillText(l, x, ty); }
       else if (k === 0 && l.startsWith(m.prefix)) { g.fillStyle = '#ffd23f'; g.fillText(m.prefix, x, ty); g.fillStyle = '#fff'; g.fillText(l.slice(m.prefix.length), x + g.measureText(m.prefix).width, ty); }
       else if (k === 0) { g.fillStyle = '#ffd23f'; g.fillText(l, x, ty); } else { g.fillStyle = '#fff'; g.fillText(l, x, ty); } });
+    if (sc === 1) { const r = closeX(cx + m.w / 2 - 22, top + 22, 'mega'); r.m = m; megaRects.push(r); }
     g.restore(); if (!down) y -= m.h + 12;
   }
 }
@@ -805,7 +816,7 @@ addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY;
 addEventListener('mouseup', () => { holdAtk = null; }); addEventListener('blur', () => { holdAtk = null; });
 const setHold = (p, now) => { if (!lockedT(myT)) holdAtk = { p, start: now }; };       // 어떤 무기든 꾹 누르고 있으면 자동으로 계속 공격 (쿨타임/과열은 그대로 적용)
 cv.addEventListener('mousedown', (e) => {
-  const now = performance.now(); if (e.button === 0 && quizClick(e.offsetX, e.offsetY, now)) return;
+  const now = performance.now(); if (e.button === 0 && (megaClick(e.offsetX, e.offsetY) || quizClick(e.offsetX, e.offsetY, now))) return;
   const p = hitTest(e.offsetX, e.offsetY, now, e.button); if (!p) { if (e.button === 0 && fxc.smash && smashAt(e.offsetX, e.offsetY, now)) smashHeld = true; return; }
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (p.isBoss) { attack(p, now); setHold(p, now); return; }
@@ -1112,6 +1123,7 @@ function frame(now) {
     if (boss && !boss.dead && !boss.judge && myId && throwOn(now)) rects.push({ x: Math.round(bossProxy.x - bossProxy.bw / 2 - 4), y: Math.round(bossProxy.cy - bossProxy.bh / 2 - 4), w: Math.round(bossProxy.bw + 8), h: Math.round(bossProxy.bh + 8) });   // 보스도 클릭 가능 영역
     if (fxc.smash) for (const o of sobjs) if (o.y > -o.r) rects.push({ x: Math.round(o.x - o.r - 4), y: Math.round(o.y - o.r - 4), w: Math.round(2 * o.r + 8), h: Math.round(2 * o.r + 8) });   // 부술 수 있는 물건도 클릭 가능 영역
     if (fxc.smash) for (const d of dolls) if (d.hp > 0 && d.drop > -20) rects.push({ x: Math.round(d.x - d.w / 2), y: Math.round(d.y - d.h / 2), w: Math.round(d.w), h: Math.round(d.h) });
+    for (const r of megaRects) rects.push({ x: Math.round(r.x), y: Math.round(r.y), w: r.w, h: r.h });   // 안내 창 X 버튼도 클릭 가능 영역
     if (quizBounds) rects.push({ x: Math.round(quizBounds.x), y: Math.round(quizBounds.y), w: Math.round(quizBounds.w), h: Math.round(quizBounds.h) });   // 퀴즈 카드도 클릭 가능 영역
     const key = JSON.stringify(rects); if (key !== lastRegionKey || now - lastRegionSend > 1000) { lastRegionKey = key; lastRegionSend = now; window.api.setRegions(rects); }   // 바뀌었거나 1초마다 다시 보냄(혹시 놓쳐도 복구)
   }
