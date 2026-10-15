@@ -77,10 +77,9 @@ function handle(m) {
   else if (m.t === 'dhp') dollHp(m, now);
   else if (m.t === 'smash') { for (const k of [].concat(m.k)) { const o = sobjs.find((q) => q.k === k); sBroken.add(k); if (o) breakObj(o, now, false); } }
   else if (m.t === 'boss') { syncClock(m.boss.now); setBoss(m.boss, true, now); }
-  else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
+  else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; if (m.heal > 0) fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 - 30, text: `+${m.heal} 회복`, start: now, dur: 1000, color: '#6bf08a', size: 14 }); fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
   else if (m.t === 'bossend') endBoss(m, now);
   else if (m.t === 'bjudge') lordJudge(m, now);
-  else if (m.t === 'bq') lordQ(m, now);
   else if (m.t === 'bjres') lordRes(m, now);
   else if (m.t === 'bmiss') { if (boss && boss.id === m.id) { const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 + 20, text: 'MISS!', start: now, dur: 900, color: '#cfd4e4', size: 20 }); parts(P.x, P.cy, 8, ['#c8a2ff', '#ffffff'], { min: 60, max: 200, gy: 0, dmin: 250, dmax: 450 }); if (!quiet) SND.whoosh(); } }
   else if (m.t === 'lhit') { const q = peers.get(m.who); if (q && boss && boss.id === m.id) lordHitFx(q, m.dir, now); }
@@ -462,12 +461,13 @@ function bossFx(po, now) {                                                      
 
 // ---------- 차원 마왕 (Lv6 이상 3명 이상일 때 나오는 특별 보스) ----------
 // 움직임은 서버가 준 seed/시각으로 모두가 똑같이 계산 (shared/bosses.js lord). 주먹은 "맞은 사람의 앱"이 판정해서 알리면 모두 화면에 날아가는 모습이 보임.
+const LORD_PUNCH_HITS = false;      // 주먹이 사람을 날리고 기절시킬지 (지금은 꺼 둠: 캐릭터가 못 움직여서 피할 수 없으니, 대신 마왕이 공격이 성공할 때마다 체력을 회복)
 const lordZone = (po) => { const P = bossProxy, d = po.dir || 1, a = P.x + d * P.bw * 0.2, b = P.x + d * (P.bw * 0.5 + 150); return { x0: Math.min(a, b), x1: Math.max(a, b) }; };   // 주먹이 닿는 바닥 구간
 const judgeAnswerer = () => !!(boss && boss.judge && boss.judge.wid === myId);
 function releaseJudge(now) { for (const p of peers.values()) if (p.judgeStun) { p.judgeStun = false; p.stunUntil = 0; p.guardUntil = now + 1200; } }       // 심판이 끝나면 기절 풀림 (잠깐 무적)
 function lordTick(po, now) {
   if (boss.judge) { for (const p of peers.values()) if (p.id !== boss.judge.wid && p.state === 'online') { p.judgeStun = true; p.stunUntil = Math.max(p.stunUntil, now + 1500); } holdAtk = null; return; }   // 심판 중: 답하는 한 명만 빼고 전원 기절
-  if (po.fist <= 0.35) return;
+  if (!LORD_PUNCH_HITS || po.fist <= 0.35) return;
   const me = peers.get(myId); if (!me || me.state !== 'online' || boss.punched === po.phase) return;
   const z = lordZone(po), hw = (me.bw || 40) / 2; if (me.x < z.x0 - hw || me.x > z.x1 + hw) return;
   boss.punched = po.phase;
@@ -504,7 +504,7 @@ function drawPortal(x, y, r, a, now) {                                          
 function lordPre(now, age) {                                                            // 마왕 몸 뒤에 그리는 것: 문 / 주먹 경고 구역 / 질주 잔상 / 심판 기운
   const po = boss.pose, P = bossProxy, ph = po.phase.split(':')[0];
   if (age < 1300 && !boss.dead) drawPortal(P.x, P.cy, P.bh * 0.7, Math.sin(Math.PI * Math.min(1, age / 1300)) * 1.2, now);
-  if ((ph === 'windup' || ph === 'windup2' || ph === 'punch' || ph === 'punch2') && !boss.dead && !boss.judge) {
+  if (LORD_PUNCH_HITS && (ph === 'windup' || ph === 'windup2' || ph === 'punch' || ph === 'punch2') && !boss.dead && !boss.judge) {
     const z = lordZone(po), hot = ph.startsWith('punch'), pulse = 0.5 + 0.5 * Math.sin(now / 70);
     g.save(); g.fillStyle = hot ? 'rgba(255,60,40,.5)' : `rgba(255,70,50,${0.14 + 0.16 * pulse})`; g.fillRect(z.x0, GROUND() - 74, z.x1 - z.x0, 78);
     g.setLineDash([8, 6]); g.strokeStyle = hot ? '#fff' : '#ff6b4a'; g.lineWidth = 2; g.strokeRect(z.x0, GROUND() - 74, z.x1 - z.x0, 78); g.setLineDash([]);
@@ -519,7 +519,7 @@ function lordPost(now) {                                                        
     const d = po.dir || 1, fh = P.bh * 0.5, fw = fh * fistImg.naturalWidth / fistImg.naturalHeight, ext = (u) => P.x + d * (P.bw * 0.22 + u * (P.bw * 0.28 + 150)), fy = GROUND() - fh * 0.42;
     for (let k = 3; k >= 0; k--) { const u = Math.max(0, po.fist - k * 0.14); g.save(); g.globalAlpha = k ? 0.22 : 1; g.translate(ext(u), fy); g.rotate(d > 0 ? -Math.PI / 2 : Math.PI / 2); g.drawImage(fistImg, -fw / 2, -fh / 2, fw, fh); g.restore(); }
   }
-  if (boss.judge && !judgeAnswerer() && !boss.dead) {                                  // 구경하는 사람(기절 중)에게 보이는 안내
+  if (boss.judge && !judgeAnswerer() && !boss.dead && !(quiz && quiz.boss)) {                                  // 구경하는 사람(기절 중)에게 보이는 안내
     const j = boss.judge, left = Math.max(0, Math.ceil((j.until - serverNow()) / 1000)), w = Math.min(520, W - 24), x = (W - w) / 2, y = 52;
     g.save(); g.fillStyle = 'rgba(30,10,50,.88)'; g.beginPath(); g.roundRect(x, y, w, 58, 14); g.fill(); g.strokeStyle = '#c9b8ff'; g.lineWidth = 2.5; g.stroke();
     g.textAlign = 'center'; g.font = '800 15px system-ui, "Malgun Gothic", sans-serif'; g.fillStyle = '#ffd23f'; g.fillText(`⚖️ 마왕의 심판 · ${j.name || '한 명'}님이 문제를 푸는 중! (${left}초)`, x + w / 2, y + 24);
@@ -534,8 +534,9 @@ function drawFlee(now) {                                                        
 }
 function lordJudge(m, now) {                                                            // 체력이 400/200 이 됨 -> 심판: 한 명만 문제를 풀고 나머지는 기절
   if (!boss || boss.id !== m.id) return; syncClock(m.now); boss.hp = m.hp; boss.judge = { wid: m.wid, uid: m.uid, name: m.name, until: m.until }; pendDmg = 0; holdAtk = null;
-  const me = m.wid === myId; if (!quiet) SND.zap(); shakeUntil = Math.max(shakeUntil, now + 600); fx.push({ type: 'screenflash', start: now, dur: 300 });
-  banner(me ? '👿 마왕이 당신에게 문제를 냈다! 맞히면 모두의 기절이 풀려요 (공격은 못 해요)' : `👿 마왕의 심판! ${m.name}님만 문제를 풀 수 있어요 — 나머지는 기절!`, '#c9b8ff', now, 6500);
+  const me = m.wid === myId; if (m.q) { if (!(quiz && quiz.boss)) quizSaved = quiz; quiz = { boss: true, spec: !me, who: m.name, phase: 'ask', id: m.id, i: 0, n: 1, topicName: m.q.topicName, text: m.q.text, choices: m.q.choices, until: m.until, myAns: null, answered: 0, atotal: 1, right: null }; if (!quiet && me) SND.quiz(); }
+  if (!quiet) SND.zap(); shakeUntil = Math.max(shakeUntil, now + 600); fx.push({ type: 'screenflash', start: now, dur: 300 });
+  banner(me ? '👿 마왕이 당신에게 문제를 냈다! 맞히면 모두의 기절이 풀려요 (공격은 못 해요)' : `👿 마왕의 심판! ${m.name}님만 문제를 풀 수 있어요 — 나머지는 기절! (문제는 같이 볼 수 있어요)`, '#c9b8ff', now, 6500);
 }
 function lordQ(m, now) {                                                                // (심판받는 사람만) 문제 카드
   if (!boss || boss.id !== m.id) return; syncClock(m.now); if (!(quiz && quiz.boss)) quizSaved = quiz;
@@ -543,7 +544,7 @@ function lordQ(m, now) {                                                        
 }
 function lordRes(m, now) {
   if (!boss || boss.id !== m.id) return; boss.judge = null; releaseJudge(now);
-  if (quiz && quiz.boss) Object.assign(quiz, { phase: 'reveal', correct: m.correct, counts: [0, 0, 0, 0], right: m.ok ? [{ uid: cfg.uid }] : [], revealAt: now, endAt: now + 3000, bossOk: !!m.ok });
+  if (quiz && quiz.boss) Object.assign(quiz, { myAns: quiz.spec ? (m.picked === undefined ? null : m.picked) : quiz.myAns, phase: 'reveal', correct: m.correct, counts: [0, 0, 0, 0], right: m.ok ? [{ uid: cfg.uid }] : [], revealAt: now, endAt: now + 3000, bossOk: !!m.ok });
   if (m.ok) { if (m.until) boss.until = m.until; SND.ok(); banner('⭕ 정답! 기절이 풀렸어요 — 마왕을 다시 공격하세요!', '#8dffb0', now, 5500); fx.push({ type: 'ring', x: bossProxy.x, y: bossProxy.cy, start: now, dur: 600, color: '#8dffb0', r: 160 }); }
   else { SND.no(); banner(m.why === 'left' ? '🌀 문제를 풀던 사람이 나가서 마왕이 도망가요…' : m.why === 'timeout' ? '⏰ 시간 초과! 마왕이 도망가요…' : '❌ 오답! 마왕이 도망가요…', '#ff9a9a', now, 5500); }
 }
@@ -666,21 +667,21 @@ function drawQuiz(now) {
   const ql = wrapLines(quiz.text, inner, `800 18px ${QFONT}`), cl = quiz.choices.map((c) => wrapLines(`${CIRC[quiz.choices.indexOf(c)]} ${c}`, inner - 70, `600 15px ${QFONT}`));
   const chH = cl.map((l) => 20 + l.length * 21), h = 56 + ql.length * 26 + 14 + chH.reduce((a, b) => a + b + 8, 0) + 44;
   quizCard(x, y, w, h, reveal ? (quiz.boss && !quiz.bossOk ? '#ff8a8a' : '#8dffb0') : quiz.boss ? '#c9a2ff' : '#b9a9ff');
-  g.textAlign = 'left'; g.fillStyle = '#b9a9ff'; g.font = `700 13px ${QFONT}`; g.fillText((quiz.boss ? `👿 차원 마왕의 문제 · ${quiz.topicName}` : quiz.n > 1 ? `🧠 ${quiz.topicName} 퀴즈 ${quiz.i + 1} / ${quiz.n}` : `🧠 ${quiz.topicName} 퀴즈`), x + 18, y + 26);
+  g.textAlign = 'left'; g.fillStyle = '#b9a9ff'; g.font = `700 13px ${QFONT}`; g.fillText((quiz.boss ? (quiz.spec ? `👀 ${quiz.who || '친구'}님이 마왕의 문제를 푸는 중 · ${quiz.topicName}` : `👿 차원 마왕의 문제 · ${quiz.topicName}`) : quiz.n > 1 ? `🧠 ${quiz.topicName} 퀴즈 ${quiz.i + 1} / ${quiz.n}` : `🧠 ${quiz.topicName} 퀴즈`), x + 18, y + 26);
   g.textAlign = 'right'; g.fillStyle = '#ffd23f'; g.fillText(reveal ? (quiz.boss ? '' : `다음 문제까지 ${Math.max(0, Math.ceil((5000 - (now - quiz.revealAt)) / 1000))}초`) : (left(quiz.until) > 0 ? `${left(quiz.until)}초` : '채점 중…'), x + w - 18, y + 26);
   if (!reveal) { const frac = Math.max(0, Math.min(1, (quiz.until - sNow) / 20000)); g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(x + 18, y + 34, inner, 5); g.fillStyle = frac > 0.3 ? '#8ecbff' : '#ff6b6b'; g.fillRect(x + 18, y + 34, inner * frac, 5); }
   g.textAlign = 'left'; g.font = `800 18px ${QFONT}`; g.fillStyle = '#fff'; ql.forEach((l, k) => g.fillText(l, x + 18, y + 66 + k * 26));
   let cy = y + 56 + ql.length * 26 + 14;
   quiz.choices.forEach((c, k) => {
     const sel = quiz.myAns === k, ok = reveal && k === quiz.correct, bad = reveal && sel && k !== quiz.correct;
-    quizBtn(x + 18, cy, inner, chH[k], '', { lines: cl[k], size: 15, act: 'ans', arg: k, off: reveal || quiz.myAns !== null || left(quiz.until) <= 0, sel: sel || ok,
+    quizBtn(x + 18, cy, inner, chH[k], '', { lines: cl[k], size: 15, act: 'ans', arg: k, off: reveal || quiz.spec || quiz.myAns !== null || left(quiz.until) <= 0, sel: sel || ok,
       fill: ok ? '#245c3a' : bad ? '#6b2c2c' : sel ? '#4a4380' : undefined, border: ok ? '#8dffb0' : bad ? '#ff8a8a' : sel ? '#ffd23f' : undefined, right: reveal && !quiz.boss ? `${quiz.counts[k]}명` : '' }, now);
     cy += chH[k] + 8;
   });
   g.textAlign = 'center'; g.font = `600 13px ${QFONT}`;
   if (reveal && quiz.boss) { g.fillStyle = quiz.bossOk ? '#8dffb0' : '#ff9a9a'; g.fillText(quiz.bossOk ? '🎉 정답! 모두의 기절이 풀려요' : (quiz.myAns === null ? '⏰ 시간 초과… 마왕이 도망가요' : '😢 오답… 마왕이 도망가요'), x + w / 2, y + h - 16); }
   else if (reveal) { g.fillStyle = quiz.right.some((r) => r.uid === cfg.uid) ? '#8dffb0' : '#ff9a9a'; const names = quiz.right.map((r) => r.name).join(', '); g.fillText(quiz.right.some((r) => r.uid === cfg.uid) ? `🎉 정답! EXP +10   (정답자: ${names})` : (quiz.myAns === null ? '⏰ 시간 초과' : '😢 오답') + (quiz.right.length ? `   (정답자: ${names})` : '   (아무도 못 맞혔어요)'), x + w / 2, y + h - 16); }
-  else { g.fillStyle = quiz.myAns === null ? '#cfd4e4' : '#8dffb0'; g.fillText(quiz.myAns === null ? '보기를 클릭해서 답하세요' : (quiz.boss ? '✅ 제출했어요! 결과를 기다리는 중…' : `✅ 제출했어요 (${quiz.answered}/${quiz.atotal}명 답함)`), x + w / 2, y + h - 16); }
+  else { g.fillStyle = quiz.myAns === null || quiz.spec ? '#cfd4e4' : '#8dffb0'; g.fillText(quiz.spec ? '👀 구경 중 — 다른 친구가 푸는 문제예요' : quiz.myAns === null ? '보기를 클릭해서 답하세요' : (quiz.boss ? (quiz.spec ? '👀 구경 중 — 다른 친구가 푸는 문제예요' : '✅ 제출했어요! 결과를 기다리는 중…') : `✅ 제출했어요 (${quiz.answered}/${quiz.atotal}명 답함)`), x + w / 2, y + h - 16); }
 }
 function quizClick(x, y, now) {                                                                // 카드 위 클릭이면 처리하고 true (캐릭터/보스 클릭으로 넘어가지 않게)
   if (!quiz || !quizBounds) return false;
