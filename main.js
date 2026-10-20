@@ -9,7 +9,7 @@ const Shortcuts = require('./shared/shortcuts.js');           // 단축키 검�
 app.setPath('userData', path.join(app.getPath('appData'), 'pixel-pals'));
 
 const H = 420; // 오버레이 높이(px): 크기 효과(최대 7배)가 잘리지 않을 만큼 넉넉하게
-let win, settingsWin, historyWin, composerWin, tray, settings, settingsPath, cachedGroups = [], away = false;
+let win, settingsWin, historyWin, composerWin, answerWin, tray, settings, settingsPath, cachedGroups = [], away = false;
 
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; } };
 // 설정값: 앱에 들어 있는 config.json 위에, 사용자 폴더의 config.json(있으면)을 덮어쓴다 -> 설치 후에도 서버 주소 등을 고칠 수 있음
@@ -230,6 +230,28 @@ ipcMain.handle('chat:send', (_e, text, mega) => new Promise((resolve) => {
   setTimeout(() => { if (pendingChat === resolve) { pendingChat = null; resolve(false); } }, 3000);
 }));
 ipcMain.on('chat:result', (_e, ok) => { if (pendingChat) { const r = pendingChat; pendingChat = null; r(!!ok); } });
+
+// ---- 마왕 문제 답 제출란 (문제 카드 바로 아래에 겹쳐 뜨는 작은 입력 창) ----
+let answerOn = false;
+function answerBounds(r) { const b = win.getBounds(); return { x: Math.round(b.x + r.x), y: Math.round(b.y + r.y), width: Math.max(120, Math.round(r.w)), height: Math.max(28, Math.round(r.h)) }; }
+function showAnswer(r) {
+  if (!win || !r) return;
+  if (!answerWin) {
+    answerWin = new BrowserWindow({ width: 400, height: 42, show: false, frame: false, transparent: true, resizable: false, maximizable: false, fullscreenable: false, hasShadow: false, skipTaskbar: true, alwaysOnTop: true,
+      title: 'DDuknip-friends 정답', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true } });
+    answerWin.setAlwaysOnTop(true, 'screen-saver'); answerWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    answerWin.loadFile(path.join(__dirname, 'answer', 'index.html')); answerWin.on('closed', () => { answerWin = null; answerOn = false; });
+  }
+  const go = () => {
+    if (!answerWin) return; answerWin.setBounds(answerBounds(r));
+    if (!answerOn) { answerOn = true; answerWin.show(); app.focus({ steal: true }); answerWin.focus(); answerWin.webContents.send('answer:shown'); }
+  };
+  if (answerWin.webContents.isLoading()) answerWin.webContents.once('did-finish-load', go); else go();
+}
+function hideAnswer() { if (answerWin && answerOn) answerWin.hide(); answerOn = false; }
+ipcMain.on('answer:show', (_e, r) => { if (r && [r.x, r.y, r.w, r.h].every(Number.isFinite)) showAnswer(r); });
+ipcMain.on('answer:hide', hideAnswer);
+ipcMain.on('answer:submit', (_e, t) => { hideAnswer(); if (win) win.webContents.send('answer:submit', String(t).slice(0, 40)); });
 
 // ---- 트레이 메뉴의 동작들 ----
 function toggleSound() {                          // 효과음 켜기/끄기 (트레이 메뉴): 바로 적용되고 저장돼요

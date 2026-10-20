@@ -1,6 +1,6 @@
 {
   "name": "dduknip-friends",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "Friends-only pixel overlay chat",
   "author": "DDuknip-friends",
   "main": "main.js",
@@ -35,6 +35,7 @@
       "settings/**",
       "history/**",
       "composer/**",
+      "answer/**",
       "shared/**",
       "package.json",
       "update-source.json"

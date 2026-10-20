@@ -1,0 +1,6 @@
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+.box{display:flex;gap:6px;align-items:center;height:100%;padding:3px;background:#1d1f3a;border:2px solid #c9a2ff;border-radius:10px;font:700 16px "Segoe UI","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif}
+input{flex:1;min-width:0;height:100%;padding:0 10px;border:0;border-radius:7px;background:#fff;color:#1d1f3a;font:inherit;outline:none}
+button{flex:none;height:100%;padding:0 16px;border:0;border-radius:7px;background:#8a5cf0;color:#fff;font:inherit;cursor:pointer}
+button:hover{background:#6f3fe0}

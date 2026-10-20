@@ -535,7 +535,7 @@ function drawFlee(now) {                                                        
 }
 function lordJudge(m, now) {                                                            // 체력이 400/200 이 됨 -> 심판: 한 명만 문제를 풀고 나머지는 기절
   if (!boss || boss.id !== m.id) return; syncClock(m.now); boss.hp = m.hp; boss.judge = { wid: m.wid, uid: m.uid, name: m.name, until: m.until }; pendDmg = 0; holdAtk = null;
-  const me = m.wid === myId; if (m.q) { if (!(quiz && quiz.boss)) quizSaved = quiz; quiz = { boss: true, spec: !me, who: m.name, phase: 'ask', id: m.id, i: 0, n: 1, topicName: m.q.topicName, text: m.q.text, choices: m.q.choices, until: m.until, myAns: null, answered: 0, atotal: 1, right: null }; if (!quiet && me) SND.quiz(); if (me && !m.q.choices) { try { window.api.setComposer(true); } catch {} } }
+  const me = m.wid === myId; if (m.q) { if (!(quiz && quiz.boss)) quizSaved = quiz; quiz = { boss: true, spec: !me, who: m.name, phase: 'ask', id: m.id, i: 0, n: 1, topicName: m.q.topicName, text: m.q.text, choices: m.q.choices, until: m.until, myAns: null, answered: 0, atotal: 1, right: null }; if (!quiet && me) SND.quiz(); }
   if (!quiet) SND.zap(); shakeUntil = Math.max(shakeUntil, now + 600); fx.push({ type: 'screenflash', start: now, dur: 300 });
   banner(me ? '👿 마왕이 당신에게 문제를 냈다! 맞히면 모두의 기절이 풀려요 (공격은 못 해요)' : `👿 마왕의 심판! ${m.name}님만 문제를 풀 수 있어요 — 나머지는 기절! (문제는 같이 볼 수 있어요)`, '#c9b8ff', now, 6500);
 }
@@ -549,7 +549,8 @@ function lordRes(m, now) {
   if (m.ok) { if (m.until) boss.until = m.until; SND.ok(); banner('⭕ 정답! 기절이 풀렸어요 — 마왕을 다시 공격하세요!', '#8dffb0', now, 5500); fx.push({ type: 'ring', x: bossProxy.x, y: bossProxy.cy, start: now, dur: 600, color: '#8dffb0', r: 160 }); }
   else { SND.no(); banner(m.why === 'left' ? '🌀 문제를 풀던 사람이 나가서 마왕이 도망가요…' : m.why === 'timeout' ? '⏰ 시간 초과! 마왕이 도망가요…' : '❌ 오답! 마왕이 도망가요…', '#ff9a9a', now, 5500); }
 }
-function drawBossText(now, sNow) {                                                    // 마왕의 주관식 문제 카드: 푸는 사람은 채팅 입력창에 정답을 쓰고 Enter
+function drawBossText(now, sNow) {
+  ansWant = null;                                                    // 마왕의 주관식 문제 카드: 푸는 사람은 카드 아래 제출란에 정답을 쓰고 Enter
   const reveal = quiz.phase === 'reveal', me = !quiz.spec, w = Math.min(780, W - 24), x = (W - w) / 2, y = 44, inner = w - 36, ql = wrapLines(quiz.text, inner, `800 19px ${QFONT}`), h = 150 + ql.length * 27 + (reveal ? 24 : 0);
   quizCard(x, y, w, h, reveal ? (quiz.bossOk ? '#8dffb0' : '#ff8a8a') : '#c9a2ff');
   g.textAlign = 'left'; g.fillStyle = '#c9b8ff'; g.font = `700 13px ${QFONT}`; g.fillText(me ? `👿 차원 마왕의 문제 · ${quiz.topicName} · 주관식` : `👀 ${quiz.who || '친구'}님이 마왕의 문제를 푸는 중 · ${quiz.topicName} · 주관식`, x + 18, y + 26);
@@ -561,7 +562,7 @@ function drawBossText(now, sNow) {                                              
   if (reveal) { g.fillStyle = quiz.bossOk ? '#8dffb0' : '#ff9a9a'; g.fillText(quiz.pickedText ? `${quiz.bossOk ? '⭕' : '❌'} ${quiz.pickedText}` : '⏰ (답 없음)', x + 30, by + 27); g.textAlign = 'right'; g.fillStyle = '#ffd23f'; g.fillText(`정답: ${quiz.answerText || ''}`, x + w - 30, by + 27); }
   else if (!me) { g.fillStyle = '#cfd4e4'; g.fillText('👀 구경 중 — 다른 친구가 답하는 중이에요', x + 30, by + 27); }
   else if (quiz.myAns) { g.fillStyle = '#8dffb0'; g.fillText(`✅ ${quiz.myAns}  (결과를 기다리는 중…)`, x + 30, by + 27); }
-  else { g.fillStyle = Math.floor(now / 500) % 2 ? '#fff' : '#cfd4e4'; g.fillText('⌨ 채팅 입력창에 정답을 쓰고 Enter! (한 번만 답할 수 있어요 · 영어로 써도 돼요)', x + 30, by + 27); }
+  else { ansWant = { x: x + 18, y: by, w: inner, h: 42 }; }                       // 이 자리에 답 제출 창이 겹쳐 뜸
   g.textAlign = 'center'; g.font = `600 13px ${QFONT}`; g.fillStyle = reveal ? (quiz.bossOk ? '#8dffb0' : '#ff9a9a') : '#9ea3c8';
   g.fillText(reveal ? (quiz.bossOk ? '🎉 정답! 모두의 기절이 풀려요' : (quiz.pickedText ? '😢 오답… 마왕이 도망가요' : '⏰ 시간 초과… 마왕이 도망가요')) : '띄어쓰기·대소문자는 상관없어요', x + w / 2, y + h - 14);
 }
@@ -855,8 +856,10 @@ function setTyping(on) {
   if (on !== typingOn) { typingOn = on; send({ t: 'typing', on }); const me = peers.get(myId); if (me) me.typing = on ? performance.now() + 4000 : 0; }
 }
 window.api.onComposerTyping(setTyping);
+window.api.onAnswerSubmit((text) => { if (ansWant && judgeAnswerer() && quiz && quiz.boss && !quiz.choices && quiz.phase === 'ask' && !quiz.myAns && ws && ws.readyState === 1) { quiz.myAns = String(text).slice(0, 40); send({ t: 'lans', id: boss.id, text: quiz.myAns }); } });
+let ansWant = null, ansKey = '';                                                       // 카드 아래 답 제출란(별도 창): 그릴 때마다 필요한 자리를 정하고, 바뀔 때만 알림
+function syncAnswer() { const k = ansWant ? [ansWant.x, ansWant.y, ansWant.w].map(Math.round).join() : ''; if (k === ansKey) return; ansKey = k; try { if (ansWant) window.api.answerShow(ansWant); else window.api.answerHide(); } catch {} }
 window.api.onChatSend((text, mega) => { const ok = !!myId && ws && ws.readyState === 1;
-  if (ok && judgeAnswerer() && quiz && quiz.boss && !quiz.choices && quiz.phase === 'ask' && !quiz.myAns) { quiz.myAns = String(text).slice(0, 40); send({ t: 'lans', id: boss.id, text: quiz.myAns }); setTyping(false); window.api.chatResult(true); return; }       // 마왕 문제를 받은 사람의 채팅은 정답 제출로 보냄 (채팅으로는 안 나감)
   if (ok) { send({ t: 'chat', text, bubble: mega ? 'mega' : cfg.bubble }); setTyping(false); } window.api.chatResult(ok); });
 window.api.onPresence((s) => { myState = s; send({ t: 'presence', state: s }); const me = peers.get(myId); if (me) me.state = s; });
 
@@ -1226,7 +1229,7 @@ function frame(now) {
     if (lvl > 0) { const gx = me.x + (me.bw || 40) / 2 + 10, gh = 34, gy = GROUND() - gh - 4; g.fillStyle = 'rgba(20,20,30,.8)'; g.fillRect(gx - 1, gy - 1, 8, gh + 2); g.fillStyle = over ? (Math.floor(now / 120) % 2 ? '#ff453a' : '#ffd23f') : lvl > 0.6 ? '#ff9f0a' : '#ffd23f'; g.fillRect(gx, gy + gh * (1 - lvl), 6, gh * lvl); }
     if (over && Math.random() < 0.5) { const mz = gunMuzzle(me, now, 'gatling', myT.hs); parts(mz.x, mz.y, 1, ['#8d99ae', '#cfd4e4', '#ffffff'], { min: 10, max: 40, gy: -70, size: 8, dmin: 500, dmax: 900 }); }
   }
-  drawQuiz(now);
+  ansWant = null; drawQuiz(now); syncAnswer();
   drawMegas(now);
   if (status) {                                    // 연결 상태 안내: 연결 중 = 주황, 그 외 = 빨강
     g.fillStyle = status.startsWith('연결 중') ? DOT.away : DOT.offline; g.beginPath(); g.arc(14, H - 12, 4, 0, 7); g.fill();
