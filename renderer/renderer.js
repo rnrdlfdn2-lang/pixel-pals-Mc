@@ -248,7 +248,7 @@ function drawHeld(p, now, T) {
   drawItem(g, T.sprite, 0, 0, { s, ax: info.pivot[0], ay: info.pivot[1] }); g.restore();
   if (T.kind === 'staff') {                                                    // 스태프 끝 보석이 빛남 (쏘는 동안 미사일 색으로 번쩍)
     const gx = pv.x + (info.muzzle[0] - info.pivot[0]) * s, gy = pv.y + (info.muzzle[1] - info.pivot[1]) * s, casting = now < p.castUntil, ci = Math.max(0, Math.min(2, Math.floor((now - (p.castAt || 0) - 300) / 400))), col = casting ? ['#ff6a3d', '#ffe14d', '#4db8ff'][ci] : '#ff5a5a', rr = (casting ? 30 + 8 * Math.sin(now / 50) : 14 + 3 * Math.sin(now / 200)) * sc;
-    g.save(); g.globalCompositeOperation = 'lighter'; const gr = g.createRadialGradient(gx, gy, 0, gx, gy, rr); gr.addColorStop(0, withAlpha(col, casting ? 0.95 : 0.5)); gr.addColorStop(1, withAlpha(col, 0)); g.fillStyle = gr; g.beginPath(); g.arc(gx, gy, rr, 0, 7); g.fill(); g.restore();
+    g.save();  const gr = g.createRadialGradient(gx, gy, 0, gx, gy, rr); gr.addColorStop(0, withAlpha(col, casting ? 0.95 : 0.5)); gr.addColorStop(1, withAlpha(col, 0)); g.fillStyle = gr; g.beginPath(); g.arc(gx, gy, rr, 0, 7); g.fill(); g.restore();
   }
   if (T.kind === 'bow') {                                                      // 시위: 평소엔 곧게, 쏠 땐 화살을 걸고 뒤로 당김
     const pt = (c) => PJ.gunPoint(pv.x, pv.y, info.pivot, c, s, 0, aim), A = pt(info.tips[0]), B = pt(info.tips[1]), ux = Math.cos(aim), uy = Math.sin(aim);
@@ -290,7 +290,8 @@ function spawnShot(T, item, a, b, now) {
     const dir = Math.sign(t.x - c.x) || 1, n = T.missiles || 3, gap = T.gapMs || 400, sc = a.sc || 1, info = itemInfo('staff'), pv = gunPivot(a), hs = (T.hs || 1) * sc;
     a.dir = dir; a.heldItem = T.id; a.gunUntil = now + 2800; a.castAt = now; a.castUntil = now + 300 + (n - 1) * gap + 450; a.aimTarget = b; a.aimUntil = a.castUntil;
     const mx = pv.x + (info.muzzle[0] - info.pivot[0]) * hs, my = pv.y + (info.muzzle[1] - info.pivot[1]) * hs, amp = PJ.curveAmp(mx, my, t.x, t.y);
-    for (let i = 0; i < n; i++) { const cc = PJ.curveControl(mx, my, t.x, t.y, amp * [1.1, 0.3, 0.75][i % 3], [-0.15, 0.1, 0.2][i % 3]); shots.push({ ...s, i, elem: i % 3, x0: mx, y0: my, cx: cc.cx, cy: cc.cy, dur: 620, start: now + 300 + i * gap }); }
+    fx.push({ type: 'beam', x: mx, y: my, to: b, start: now + 300, dur: 200 + (n - 1) * gap + 450, seed: Math.random() * 6 });             // 빨강·노랑·파랑 빛이 나선으로 꼬여 쭉 뻗는 광선 (모이라 궁극기 느낌)
+    for (let i = 0; i < n; i++) { const cc = PJ.curveControl(mx, my, t.x, t.y, 0, 0); shots.push({ ...s, i, elem: i % 3, x0: mx, y0: my, cx: cc.cx, cy: cc.cy, dur: 20, start: now + 500 + i * gap }); }       // 피해 판정은 광선이 닿은 뒤 0.4초 간격 3번
     return;
   } else if (kind === 'missile') {
     s.dur = PJ.FLIGHT.missile; const amp = PJ.curveAmp(c.x, c.y, t.x, t.y) * rnd(0.85, 1.15), cc = PJ.curveControl(c.x, c.y, t.x, t.y, amp, rnd(-0.2, 0.2)); s.cx = cc.cx; s.cy = cc.cy;
@@ -768,6 +769,21 @@ function drawFx(f, now) {                                                       
     } g.globalAlpha = 1;
   } else if (f.type === 'screenflash') { g.globalAlpha = 0.55 * (1 - t); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
   } else if (f.type === 'ring') { g.globalAlpha = 1 - t; g.strokeStyle = f.color; g.lineWidth = 4; g.beginPath(); g.arc(f.x, f.y, 10 + (f.r || 60) * t, 0, 7); g.stroke(); g.globalAlpha = 1; }
+  else if (f.type === 'beam') {                                                     // 나선 광선: 빨강/노랑/파랑 세 가닥이 꼬이며 뻗어 나감
+    const c = f.to ? center(f.to) : { x: f.x + 400, y: f.y }, dx = c.x - f.x, dy = c.y - f.y, L = Math.hypot(dx, dy), ang = Math.atan2(dy, dx), el = now - f.start, grow = Math.min(1, el / 180), fade = t > 0.78 ? (1 - t) / 0.22 : 1, Lc = L * grow, cols = ['#ff2d1f', '#ffc800', '#1f7bff'], cores = ['#ff9a8a', '#fff6b0', '#9fd4ff'];
+    g.save(); g.translate(f.x, f.y); g.rotate(ang); g.globalAlpha = fade; g.lineCap = 'round'; g.globalCompositeOperation = 'lighter';
+    const A = 22 * SIZE, step = 6, ph = el / 90 + f.seed;
+    g.fillStyle = 'rgba(190,150,255,.22)'; g.fillRect(0, -A * 1.05, Lc, A * 2.1);                                           // 바탕 빛무리
+    for (let layer = 0; layer < 2; layer++) for (let k = 0; k < 3; k++) {
+      const off = k * Math.PI * 2 / 3; let px = 0, py = 0;
+      for (let x = step; x <= Lc; x += step) { const env = Math.min(1, x / 70) * (0.85 + 0.15 * Math.sin(el / 60 + x / 40)), a1 = x / 26 - ph + off, y = Math.sin(a1) * A * env, depth = Math.cos(a1);   // 앞/뒤로 도는 느낌 (굵기)
+        g.strokeStyle = layer ? cores[k] : cols[k]; g.lineWidth = (layer ? 3 : 11) * SIZE * (0.65 + 0.35 * depth); g.globalAlpha = fade * (layer ? 0.9 : 0.75); g.beginPath(); g.moveTo(px, py); g.lineTo(x, y); g.stroke(); px = x; py = y; }
+    }
+    g.globalAlpha = fade; g.strokeStyle = '#fff'; g.lineWidth = 4 * SIZE; g.beginPath(); g.moveTo(0, 0); g.lineTo(Lc, 0); g.stroke();   // 한가운데 하얀 심
+    g.fillStyle = '#fff'; const rm = (10 + 3 * Math.sin(el / 40)) * SIZE; g.beginPath(); g.arc(0, 0, rm, 0, 7); g.fill();
+    if (grow >= 1) { const ri = (26 + 8 * Math.sin(el / 35)) * SIZE; const gr = g.createRadialGradient(Lc, 0, 2, Lc, 0, ri); gr.addColorStop(0, '#fff'); gr.addColorStop(0.4, 'rgba(255,225,77,.8)'); gr.addColorStop(1, 'rgba(255,60,46,0)'); g.fillStyle = gr; g.beginPath(); g.arc(Lc, 0, ri, 0, 7); g.fill(); }
+    g.restore(); g.globalAlpha = 1;
+  }
   else if (f.type === 'text') { g.globalAlpha = 1 - Math.max(0, (t - 0.6) / 0.4); g.font = `700 ${f.size || 13}px system-ui, sans-serif`; g.textAlign = 'center'; const y = f.y - t * 18; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.65)'; g.strokeText(f.text, f.x, y); g.fillStyle = f.color || '#fff'; g.fillText(f.text, f.x, y); g.globalAlpha = 1; }
   else if (f.type === 'fpuff') {                                                    // 불길 덩어리: 노랑 -> 주황 -> 빨강으로 변하며 커지고 사라짐
     const el = (now - f.start) / 1000, px = f.x + f.vx * el, py = f.y + f.vy * el, r = f.r0 + (f.r1 - f.r0) * t, col = t < 0.25 ? '255,246,190' : t < 0.55 ? '255,196,60' : t < 0.8 ? '255,106,28' : '194,51,31';
@@ -1162,7 +1178,7 @@ function frame(now) {
       s.fired = true;
       if (s.kind === 'gun') { (s.T && s.T.id === 'gat' ? SND.gat : SND.shot)(); fx.push({ type: 'flash', x: s.x0, y: s.y0, start: now, dur: 110, angle: Math.atan2(tc.y - s.y0, tc.x - s.x0) }); }
       else if (s.kind === 'missile') SND.whoosh();
-      else if (s.kind === 'staff') { SND.whoosh(); const col = ELEM[s.elem]; fx.push({ type: 'ring', x: s.x0, y: s.y0, start: now, dur: 360, color: col[0], r: 46 }); parts(s.x0, s.y0, 10, col, { min: 60, max: 220, gy: 0, dmin: 250, dmax: 450, size: 4 }); }
+      else if (s.kind === 'staff') { if (s.i === 0) SND.whoosh(); }
       else if (s.kind === 'cannon') { SND.cannon(); const ang = Math.atan2(tc.y - s.y0, tc.x - s.x0); fx.push({ type: 'boom', x: s.x0 + Math.cos(ang) * 16, y: s.y0 + Math.sin(ang) * 16, start: now, dur: 380, seed: Math.random() * 6, sc: 0.6 }); fx.push({ type: 'flash', x: s.x0, y: s.y0, start: now, dur: 220, angle: ang });
         parts(s.x0, s.y0, 16, ['#ffffff', '#cfd4e4', '#8d99ae', '#ffd23f', '#ff9f1c'], { angle: ang, spread: 0.45, min: 80, max: 380, gy: -30, size: 8, dmin: 500, dmax: 1000 }); fx.push({ type: 'ring', x: s.x0 + Math.cos(ang) * 22, y: s.y0 + Math.sin(ang) * 22, start: now, dur: 320, color: '#ffe9a8', r: 46 }); shakeUntil = Math.max(shakeUntil, now + 220); }
       else if (s.kind === 'bow') SND.twang();
@@ -1203,10 +1219,7 @@ function frame(now) {
       const flip = Math.cos(s.aim) < 0, ang = flip ? Math.PI - s.aim : s.aim, e = 1 - Math.pow(1 - t, 2);
       for (let k = 3; k >= 0; k--) { const tt = Math.max(0, e - k * 0.12), px = s.x0 + (tc.x - s.x0) * tt, py = s.y0 + (tc.y - s.y0) * tt; g.globalAlpha = k ? 0.22 : 1; drawItem(g, 'glove', px, py, { s: 2.4 * SIZE, flip, angle: ang, ax: itemInfo('glove').pivot[0], ay: itemInfo('glove').pivot[1] }); }
       g.globalAlpha = 1;
-    } else if (s.kind === 'staff') {                                               // 스태프 미사일: 불꽃 / 번개 화살 / 물덩이 그림이 곡선을 그리며 날아감
-      const tt = Math.pow(t, 1.15), p = PJ.bezier(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, tt), ang = PJ.bezierAngle(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, tt), nm = ['fire', 'bolt', 'water'][s.elem], im = mImgs[nm], col = ELEM[s.elem];
-      if (im.complete && im.naturalWidth) { const w = 50 * SIZE, h = w * im.naturalHeight / im.naturalWidth; g.save(); g.translate(p.x, p.y); g.rotate(ang - [0.45, 0, 0.12][s.elem]); g.drawImage(im, -w * 0.62, -h / 2, w, h); g.restore(); }
-      parts(p.x - Math.cos(ang) * 14, p.y - Math.sin(ang) * 14, 2, col, { min: 5, max: 50, gy: s.elem === 0 ? -50 : 20, size: 4, dmin: 280, dmax: 460 });
+    } else if (s.kind === 'staff') {                                               // (광선은 beam 효과로 그림)
     } else if (s.kind === 'missile') {                                             // 매직미사일: 곡선을 그리며 날아가고 불꽃 꼬리를 흘림
       const tt = Math.pow(t, 1.25), p = PJ.bezier(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, tt), ang = PJ.bezierAngle(s.x0, s.y0, s.cx, s.cy, tc.x, tc.y, tt);
       drawItem(g, 'missile', p.x, p.y, { s: 2 * SIZE, angle: ang - rad(itemInfo('missile').forward) });
