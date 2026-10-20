@@ -189,7 +189,7 @@ function bossPanel(g) {                                                         
   const act1 = b.active ? Bosses.BOSSES[b.active.type] : null;
   box.append(el('div', { class: 'stat', text: act1 ? `지금 ${act1.emoji} ${act1.name} 출현 중 · 약 ${Math.max(1, Math.ceil(b.active.leftMs / 60000))}분 남음` : b.on ? `다음 출현: 약 ${Math.max(1, Math.ceil((b.nextInMs || 0) / 60000))}분 뒤 (앱을 켜 둔 그룹원이 있을 때만)` : '보스 출현이 꺼져 있어요' }));
   { const need = b.lordNeed || 3, lv = b.lordLv || 6, ready = b.lordReady || 0, kills = g.lordKills || 0;
-    box.append(el('div', { class: 'stat', text: `👿 차원 마왕 (체력 600 · 회피 20%): Lv.${lv} 이상이 ${need}명 이상 접속해 있으면 나올 수 있어요 (지금 ${ready}명) · 내 처치 ${kills}회 — 5회 처치하면 🪄 마왕의 스태프 해금${kills >= 5 ? ' ✅' : ''}` })); }
+    box.append(el('div', { class: 'stat', text: `👿 차원 마왕 (체력 1200 · 회피 30% · 배리어): Lv.${lv} 이상이 ${need}명 이상 접속해 있으면 나올 수 있어요 (지금 ${ready}명) · 내 처치 ${kills}회 — 5회 처치하면 🪄 마왕의 스태프 해금${kills >= 5 ? ' ✅' : ''}` })); }
   if (g.owner) {
     const save = (patch) => act(async () => { await rpc('bosscfg', { code: g.code, ...patch }); await refreshGroups(); }, '보스 설정을 바꿨어요 (그룹원 모두에게 적용)');
     const cb = el('input', { type: 'checkbox' }); cb.checked = !!b.on; cb.addEventListener('change', () => save({ on: cb.checked }));

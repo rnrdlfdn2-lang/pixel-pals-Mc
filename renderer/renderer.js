@@ -77,11 +77,12 @@ function handle(m) {
   else if (m.t === 'dhp') dollHp(m, now);
   else if (m.t === 'smash') { for (const k of [].concat(m.k)) { const o = sobjs.find((q) => q.k === k); sBroken.add(k); if (o) breakObj(o, now, false); } }
   else if (m.t === 'boss') { syncClock(m.boss.now); setBoss(m.boss, true, now); }
-  else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; if (m.heal > 0) fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 - 30, text: `+${m.heal} 회복`, start: now, dur: 1000, color: '#6bf08a', size: 14 }); fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
+  else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; if (m.heal > 0) fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 - 30, text: `+${m.heal} 회복`, start: now, dur: 1000, color: '#6bf08a', size: 14 }); fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: m.barrier ? '🛡 배리어!' : `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
   else if (m.t === 'bossend') endBoss(m, now);
   else if (m.t === 'updnow') { try { window.api.checkUpdateSoft(); } catch {} }                 // 방장이 업데이트 알림을 보냄 -> 새 버전이 있으면 업데이트 창이 뜸
   else if (m.t === 'bjudge') lordJudge(m, now);
   else if (m.t === 'bjres') lordRes(m, now);
+  else if (m.t === 'bbar') { if (boss && boss.id === m.id) { syncClock(m.now); boss.barUntil = m.until; } }
   else if (m.t === 'bmiss') { if (boss && boss.id === m.id) { const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 + 20, text: 'MISS!', start: now, dur: 900, color: '#cfd4e4', size: 20 }); parts(P.x, P.cy, 8, ['#c8a2ff', '#ffffff'], { min: 60, max: 200, gy: 0, dmin: 250, dmax: 450 }); if (!quiet) SND.whoosh(); } }
   else if (m.t === 'lhit') { const q = peers.get(m.who); if (q && boss && boss.id === m.id) lordHitFx(q, m.dir, now); }
   else if (m.t === 'quiz' || m.t === 'qprog' || m.t === 'qstart' || m.t === 'qq' || m.t === 'qa' || m.t === 'qres' || m.t === 'qend') quizMsg(m, now);
@@ -567,6 +568,14 @@ function drawBossText(now, sNow) {
   g.textAlign = 'center'; g.font = `600 13px ${QFONT}`; g.fillStyle = reveal ? (quiz.bossOk ? '#8dffb0' : '#ff9a9a') : '#9ea3c8';
   g.fillText(reveal ? (quiz.bossOk ? '🎉 정답! 모두의 기절이 풀려요' : (quiz.pickedText ? '😢 오답… 마왕이 도망가요' : '⏰ 시간 초과… 마왕이 도망가요')) : '띄어쓰기·대소문자는 상관없어요', x + w / 2, y + h - 14);
 }
+function drawBarrier(now, P) {                                                        // 마왕의 배리어: 1초 동안 보호막이 둘러싸임 (이때 때리면 오히려 회복)
+  const left = (boss.barUntil - serverNow()) / 1000, a = Math.min(1, left * 6) * (0.75 + 0.25 * Math.sin(now / 45)), R = Math.max(P.bw, P.bh) * 0.62, cx = P.x, cy = P.cy;
+  g.save(); g.globalAlpha = a; const gr = g.createRadialGradient(cx, cy, R * 0.55, cx, cy, R); gr.addColorStop(0, 'rgba(120,220,255,0)'); gr.addColorStop(0.8, 'rgba(120,220,255,.28)'); gr.addColorStop(1, 'rgba(210,250,255,.7)');
+  g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.fill(); g.strokeStyle = '#dff8ff'; g.lineWidth = 4; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.stroke();
+  g.strokeStyle = 'rgba(200,245,255,.55)'; g.lineWidth = 1.5; const hr = 26; for (let row = -4; row <= 4; row++) for (let col = -4; col <= 4; col++) { const hx = cx + (col + (row & 1) * 0.5) * hr * 1.75, hy = cy + row * hr * 1.5; if (Math.hypot(hx - cx, hy - cy) > R - hr * 0.6) continue; g.beginPath(); for (let k = 0; k < 6; k++) { const an = Math.PI / 3 * k + Math.PI / 6; g.lineTo(hx + Math.cos(an) * hr, hy + Math.sin(an) * hr); } g.closePath(); g.stroke(); }
+  g.fillStyle = '#fff'; g.font = '800 15px system-ui, "Malgun Gothic", sans-serif'; g.textAlign = 'center'; g.strokeStyle = 'rgba(20,60,90,.8)'; g.lineWidth = 4; g.strokeText('🛡 배리어! 공격하면 회복해요', cx, cy - R - 10); g.fillText('🛡 배리어! 공격하면 회복해요', cx, cy - R - 10);
+  g.restore();
+}
 function drawBoss(now) {
   if (!boss || !boss.pose) return; const lord = boss.type === 'lord', po = boss.pose, v = boss.v, P = bossProxy, spr = lord ? null : BossSprites[boss.type], cv0 = lord ? lordImg : bossCanvas(boss.type, po.sprite in spr ? po.sprite : 'idle');
   if (lord && !lordImg.complete) return;
@@ -582,6 +591,7 @@ function drawBoss(now) {
   if (!boss.dead && now - boss.hitAt < 140) { g.globalAlpha = 0.65 * (1 - (now - boss.hitAt) / 140); g.globalCompositeOperation = 'lighter'; g.drawImage(cv0, -w0 / 2, y0, w0, h0); g.globalCompositeOperation = 'source-over'; }   // 맞으면 번쩍
   g.restore(); g.globalAlpha = 1;
   if (lord) lordPost(now);
+  if (lord && !boss.dead && boss.barUntil && serverNow() < boss.barUntil) drawBarrier(now, P);
   if (boss.dead) return;
   // 이름 + 체력 막대 + 남은 시간 (보스 머리 쪽 위에 똑바로 서 있게 그림)
   const info = Bz.BOSSES[boss.type], up = { x: Math.sin(po.rot), y: -Math.cos(po.rot) }, topD = (po.anchor === 'bottom' ? h0 * po.sy - v.bh * po.sy / 2 : h0 * po.sy / 2) + 18;
