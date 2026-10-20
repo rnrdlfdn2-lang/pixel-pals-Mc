@@ -79,6 +79,7 @@ function handle(m) {
   else if (m.t === 'boss') { syncClock(m.boss.now); setBoss(m.boss, true, now); }
   else if (m.t === 'bhp') { if (boss && boss.id === m.id) { boss.hp = m.hp; boss.hitAt = now; const P = bossProxy; if (m.heal > 0) fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 - 30, text: `+${m.heal} 회복`, start: now, dur: 1000, color: '#6bf08a', size: 14 }); fx.push({ type: 'text', x: P.x + rnd(-24, 24), y: P.cy - P.bh / 2 - 6, text: `-${m.dmg}`, start: now, dur: 900, color: m.dmg >= 5 ? '#ffd23f' : '#ff8a8a', size: 12 + Math.min(14, m.dmg * 2) }); } }
   else if (m.t === 'bossend') endBoss(m, now);
+  else if (m.t === 'updnow') { try { window.api.checkUpdateSoft(); } catch {} }                 // 방장이 업데이트 알림을 보냄 -> 새 버전이 있으면 업데이트 창이 뜸
   else if (m.t === 'bjudge') lordJudge(m, now);
   else if (m.t === 'bjres') lordRes(m, now);
   else if (m.t === 'bmiss') { if (boss && boss.id === m.id) { const P = bossProxy; fx.push({ type: 'text', x: P.x + rnd(-30, 30), y: P.cy - P.bh / 2 + 20, text: 'MISS!', start: now, dur: 900, color: '#cfd4e4', size: 20 }); parts(P.x, P.cy, 8, ['#c8a2ff', '#ffffff'], { min: 60, max: 200, gy: 0, dmin: 250, dmax: 450 }); if (!quiet) SND.whoosh(); } }

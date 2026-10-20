@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   onPresence: (cb) => ipcRenderer.on('presence', (_e, s) => cb(s)),
   listDisplays: () => ipcRenderer.invoke('displays:list'),          // 연결된 모니터 목록
   identifyDisplays: () => ipcRenderer.invoke('displays:identify'),  // 각 모니터에 번호 띄우기
+  checkUpdateSoft: () => ipcRenderer.invoke('update:soft'),            // 방장이 보낸 알림으로 새 버전 확인 (최신이면 조용히 넘어감)
   checkUpdate: () => ipcRenderer.invoke('update:check'),            // 업데이트 확인
   onQuiet: (cb) => ipcRenderer.on('quiet', (_e, v) => cb(v)),
   onSound: (cb) => ipcRenderer.on('sound', (_e, v) => cb(v)),

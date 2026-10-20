@@ -230,6 +230,7 @@ function groupCard(g) {
   } else {
     foot.append(el('button', { class: 'b', text: '그룹 나가기', onclick: () => confirm(`'${g.name}' 그룹에서 나갈까요?${g.owner ? '\n가장 오래된 멤버가 방장이 돼요.' : ''}`) && act(async () => { await rpc('leave', { code: g.code }); api.forgetGroup(g.code); await refreshGroups(); }, '그룹에서 나갔어요') }));
     if (g.owner) foot.append(
+      el('button', { class: 'b', text: '📣 업데이트 알림 보내기', onclick: () => act(async () => { const r = await rpc('updnotify', { code: g.code }); toast(`접속 중인 친구 ${r.sent}명에게 업데이트 확인 알림을 보냈어요`); }, '') }),
       el('button', { class: 'b', text: '이름 변경', onclick: () => { renaming = g.code; renderGroups(); } }),
       el('button', { class: 'b danger', text: '그룹 삭제', onclick: () => confirm(`'${g.name}' 그룹을 삭제할까요?\n되돌릴 수 없어요.`) && act(async () => { await rpc('delete', { code: g.code }); api.forgetGroup(g.code); await refreshGroups(); }, '그룹을 삭제했어요') }));
   }

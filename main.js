@@ -306,6 +306,7 @@ async function startUpdate(info) {
   setTimeout(() => { if (!failed) app.quit(); }, 800);
 }
 ipcMain.handle('update:check', () => checkForUpdate(true));
+ipcMain.handle('update:soft', () => { promptedVersion = ''; return checkForUpdate(false); });       // 방장의 "업데이트 알림 보내기"
 
 // ---- 트레이 우클릭 메뉴 (SIDEY와 같은 구성, 상점 제외). 열 때마다 새로 만들어서 상태가 항상 맞게 ----
 function buildMenu() {
